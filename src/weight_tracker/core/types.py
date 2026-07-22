@@ -6,8 +6,9 @@ Single source of truth for domain nouns (Mandate-12): acceptance-test
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from enum import Enum
 
 
@@ -38,6 +39,36 @@ class RejectionReason(Enum):
     MISSING_VALUE = "missing_value"  # empty submit
     FUTURE_DATE = "future_date"  # beyond device-skew bound (server UTC date + 1)
     BAD_DATE = "bad_date"  # unparseable date
+
+
+#: Window length in days per bounded scale (pinned at DISTILL):
+#: window = [today - (N - 1), today], i.e. the last N days inclusive of today.
+SCALE_WINDOW_DAYS: dict[TimeScale, int] = {
+    TimeScale.ONE_WEEK: 7,
+    TimeScale.ONE_MONTH: 30,
+    TimeScale.THREE_MONTHS: 91,
+    TimeScale.SIX_MONTHS: 182,
+    TimeScale.ONE_YEAR: 365,
+}
+
+
+def window_start(scale: TimeScale, today: date) -> date | None:
+    """First day of the scale's window, inclusive of today; None for ALL (unbounded)."""
+    if scale is TimeScale.ALL:
+        return None
+    return today - timedelta(days=SCALE_WINDOW_DAYS[scale] - 1)
+
+
+def entries_in_window(entries: Sequence[Entry], scale: TimeScale, today: date) -> list[Entry]:
+    """Exactly the stored entries whose day falls inside the scale's window (order kept).
+
+    A pure filter: never adds, fills, or interpolates -- missing days stay honest gaps.
+    ALL spans the whole record; bounded scales keep [window_start, today].
+    """
+    start = window_start(scale, today)
+    if start is None:
+        return list(entries)
+    return [entry for entry in entries if start <= entry.day <= today]
 
 
 # Validation constants (System Constraints A1/A2)

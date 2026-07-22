@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weight history</title>
+  <link rel="stylesheet" href="/static/uplot.min.css">
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 1rem; }
+    #scale-picker { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    #scale-picker button { padding: 0.4rem 0.8rem; font-size: 1rem; }
+    #scale-picker button[aria-pressed="true"] { font-weight: bold; text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <main id="graph-page" data-view="{{ view }}" data-scale="{{ scale }}">
+    <h1>Weight history</h1>
+    <nav id="scale-picker" aria-label="Time scale">
+      <button data-scale="1W">1W</button>
+      <button data-scale="1M">1M</button>
+      <button data-scale="3M">3M</button>
+      <button data-scale="6M">6M</button>
+      <button data-scale="1Y">1Y</button>
+      <button data-scale="ALL">All</button>
+    </nav>
+    <div id="chart"></div>
+    <p id="empty-invite" hidden>No entries yet — <a href="/">log your first weight</a>.</p>
+    <p><a href="/">Back to today's entry</a></p>
+  </main>
+  <script src="/static/uplot.iife.min.js"></script>
+  <script>
+    // Shell rendering only: the server windows entries (pure core) and returns
+    // exactly the stored ones. Missing days become nulls on the daily grid, so
+    // uPlot draws honest gaps — no zeros, no interpolation (spanGaps: false).
+    const DAY_MS = 86400000;
+    const page = document.getElementById("graph-page");
+    const chartHost = document.getElementById("chart");
+    const emptyInvite = document.getElementById("empty-invite");
+    let chart = null;
+
+    function dailyGridSeries(entries) {
+      const weightByDay = new Map(entries.map((e) => [e.date, e.weight_kg]));
+      const dayStamps = entries.map((e) => Date.parse(e.date + "T00:00:00Z")).sort((a, b) => a - b);
+      const xs = [];
+      const ys = [];
+      for (let t = dayStamps[0]; t <= dayStamps[dayStamps.length - 1]; t += DAY_MS) {
+        const isoDay = new Date(t).toISOString().slice(0, 10);
+        xs.push(t / 1000);
+        ys.push(weightByDay.has(isoDay) ? weightByDay.get(isoDay) : null);
+      }
+      return [xs, ys];
+    }
+
+    function renderRawGraph(entries) {
+      if (chart !== null) chart.destroy();
+      chart = new uPlot(
+        {
+          width: Math.min(document.body.clientWidth - 32, 800),
+          height: 320,
+          series: [
+            {},
+            {
+              label: "kg",
+              stroke: "#1f6feb",
+              spanGaps: false,
+              points: { show: true },
+            },
+          ],
+          axes: [{}, { label: "kg" }],
+        },
+        dailyGridSeries(entries),
+        chartHost,
+      );
+    }
+
+    async function showHistory(scale) {
+      page.dataset.scale = scale;
+      for (const button of document.querySelectorAll("#scale-picker button")) {
+        button.setAttribute("aria-pressed", String(button.dataset.scale === scale));
+      }
+      const response = await fetch(`/entries?scale=${encodeURIComponent(scale)}`);
+      const history = await response.json();
+      emptyInvite.hidden = !history.invite_first_log;
+      if (history.entries.length === 0) {
+        if (chart !== null) { chart.destroy(); chart = null; }
+        return;
+      }
+      renderRawGraph(history.entries);
+    }
+
+    for (const button of document.querySelectorAll("#scale-picker button")) {
+      button.addEventListener("click", () => showHistory(button.dataset.scale));
+    }
+    showHistory(page.dataset.scale);
+  </script>
+</body>
+</html>

@@ -20,10 +20,17 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
-from weight_tracker.core.types import Entry, Rejected, RejectionReason, Saved
+from weight_tracker.core.types import (
+    Entry,
+    Rejected,
+    RejectionReason,
+    Saved,
+    TimeScale,
+    entries_in_window,
+)
 from weight_tracker.core.validation import validate_entry_date, validate_weight
 from weight_tracker.ports import ClockPort, EntryStorePort
 from weight_tracker.shell.access_gate import (
@@ -63,6 +70,7 @@ def _rejected_save(rejected: Rejected, typed_value: str) -> dict[str, Any]:
 
 
 _templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+_static_dir = Path(__file__).parent / "static"
 
 
 def _log_auth_event(name: str) -> None:
@@ -137,13 +145,28 @@ def build_router(
 
     @router.get("/entries")
     def history(scale: str = "ALL") -> dict[str, Any]:
-        entries = store.all_entries()  # newest first; scale windowing lands in later steps
+        stored = store.all_entries()  # newest first
+        shown = entries_in_window(stored, TimeScale(scale), today=clock.now_utc().date())
         return {
             "entries": [
-                {"date": entry.day.isoformat(), "weight_kg": entry.weight_kg} for entry in entries
+                {"date": entry.day.isoformat(), "weight_kg": entry.weight_kg} for entry in shown
             ],
-            "invite_first_log": not entries,
+            "invite_first_log": not stored,
         }
+
+    @router.get("/graph")
+    def graph_page(request: Request, view: str = "raw", scale: str = "3M") -> Response:
+        """Raw history graph page (uPlot, vendored). The core windows; this shell renders."""
+        return _templates.TemplateResponse(
+            request=request,
+            name="graph.html",
+            context={"view": view, "scale": scale},
+        )
+
+    @router.get("/static/{asset_name}")
+    def static_asset(asset_name: str) -> FileResponse:
+        """Vendored front-end assets (uPlot; no CDN). Single path segment only."""
+        return FileResponse(_static_dir / asset_name)
 
     @router.get("/stats")
     def stats() -> dict[str, Any]:
