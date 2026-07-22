@@ -12,7 +12,10 @@ R_KG2 = 0.20, Q_KG2 = R*alpha^2/(1-alpha) with alpha = 0.10, Huber delta = 1.0 k
   * Huber clipping: an outlier of ANY magnitude moves the trend <= 0.3 kg
   * gap continuity: the CURRENT line steps <= 0.3 kg/day across gaps up to 7 days
     (bounded step, no kink -- never immutability of previously rendered values)
-  * responsiveness: a sustained 0.5 kg/week decline is visible within 7 days
+  * responsiveness: a sustained 0.5 kg/week decline is visible within 7 days,
+    and after 3 weeks the endpoint sits >1 kg below the pre-onset PLATEAU
+    (anchored on the fixed input level, never on a retrospectively revised
+    rendered value -- ADR-004 Consequences)
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ from hypothesis import strategies as st
 from weight_tracker.core.trend import trend_series
 from weight_tracker.core.types import Entry
 
-pytestmark = [pytest.mark.pending, pytest.mark.property, pytest.mark.us_004]
+pytestmark = [pytest.mark.property, pytest.mark.us_004]
 
 START = date(2026, 3, 1)
 SPIKE_LIMIT_KG = 0.3
@@ -118,16 +121,38 @@ def test_the_current_line_crosses_a_gap_with_bounded_daily_steps(kg, gap_days, s
 @given(kg=st.integers(600, 1100).map(lambda i: i / 10))
 @settings(max_examples=50, deadline=None)
 def test_a_sustained_half_kilo_per_week_decline_is_visible_within_7_days(kg):
-    stable = steady(kg, 14)
+    plateau_kg = kg  # the pre-onset level: a FIXED input, never a revised rendered value
+    stable = steady(plateau_kg, 14)
     onset = 14
     decline = [
         Entry(
             day=START + timedelta(days=onset + o),
-            weight_kg=round(kg - 0.5 * (o // 7 + 1), 1),
+            weight_kg=round(plateau_kg - 0.5 * (o // 7 + 1), 1),
         )
         for o in range(21)
     ]
-    series = {p.day: p.trend_kg for p in trend_series(stable + decline)}
     onset_day = START + timedelta(days=onset)
+
+    # Within 7 days (the AC as the user lives it): with only the first decline
+    # week LOGGED, the current line already points down and its endpoint sits
+    # visibly below the plateau (RTS endpoint = filtered endpoint ~ plateau-0.26).
+    # Rejects over-lagging smoothers: an EMA with alpha=0.01 leaves the endpoint
+    # within ~0.03 kg of the plateau and fails the -0.1 clause.
+    week_one = {p.day: p.trend_kg for p in trend_series(stable + decline[:7])}
+    assert week_one[max(week_one)] < week_one[onset_day]
+    assert week_one[max(week_one)] < plateau_kg - 0.1
+
+    # Three weeks logged: the CURRENT line falls through the onset window
+    # (shape of the current line -- the only thing ADR-004 lets an oracle pin).
+    series = {p.day: p.trend_kg for p in trend_series(stable + decline)}
     assert series[onset_day + timedelta(days=7)] < series[onset_day] - 0.05
-    assert series[max(series)] < series[onset_day] - 1.0
+
+    # ...and the endpoint is >1 kg below the PLATEAU. Anchoring on the fixed
+    # input, NOT on series[onset_day]: RTS revises the onset-day value down
+    # ~0.45 kg while the endpoint lags ~0.40 kg, capping any onset-anchored
+    # delta at ~0.65 kg for EVERY correct ADR-004 implementation (oracle-
+    # verified 2026-07-22). Raw level is plateau-1.5 by day 21; the smoothed
+    # endpoint reaches ~plateau-1.10 (margin ~0.10, shift-invariant: 0.5 kg
+    # steps never trip the Huber clip, so the filter is linear here).
+    # Rejects a flat/cumulative-mean line, which would sit at ~plateau-0.6.
+    assert series[max(series)] < plateau_kg - 1.0
