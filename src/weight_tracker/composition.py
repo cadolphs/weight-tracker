@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sys
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from weight_tracker.core.trend import trend_series_in
 from weight_tracker.ports import ClockPort
 from weight_tracker.shell.access_gate import AccessGate, install_access_gate
 from weight_tracker.shell.entry_store import SqliteEntryStore, replication_status
+from weight_tracker.shell.telemetry_store import count_events_since
 from weight_tracker.web.routes import build_router
 
 
@@ -42,9 +44,11 @@ def build_app(
         POST /entries                    WeightLogging.record_or_replace(date, kg, entry_ms)
         GET  /entries?scale=...          WeightHistory.entries_in(window)
         GET  /trend?scale=...            TrendProjection.trend_series_in(window)
-                                         (emits trend_view_opened event)
-        GET  /graph?view=...&scale=...   graph page (default view=trend, A4)
-        GET  /stats                      KPI query surface (entry speed, adherence, trend opens)
+                                         (emits trend_view_opened event, KPI-3)
+        GET  /graph?view=...&scale=...   graph page (default view=trend A4; one-tap
+                                         Trend/Raw toggle shares selected_time_scale)
+        GET  /stats                      KPI query surface (entry speed, adherence, trend
+                                         opens incl. trend_views_this_week rolling 7 days)
         GET  /healthz                    unauthenticated health/replication status
         GET  /manifest.webmanifest       PWA install manifest
     """
@@ -59,6 +63,7 @@ def build_app(
             gate=gate,
             clock=clock,
             trend_series_in=trend_series_in,
+            count_events_since=partial(count_events_since, db_path),
             replication_status=lambda: replication_status(db_path),
         )
     )

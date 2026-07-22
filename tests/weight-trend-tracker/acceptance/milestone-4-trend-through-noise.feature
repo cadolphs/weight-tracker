@@ -53,27 +53,27 @@ Feature: See the true trend through daily noise
     When he opens the trend at "1W"
     Then the trend begins at 21 July 2026
 
-  @pending @driving_port @US-005 @contract-shape:pure-function
+  @driving_port @US-005 @contract-shape:pure-function
   Scenario: Toggling preserves the time window
     Given his record holds an entry for every day from 1 May 2026 to 21 July 2026
     And he is viewing the trend at "3M"
     When he switches the graph to Raw
     Then the Raw view is shown at "3M"
 
-  @pending @driving_port @US-005 @contract-shape:pure-function
+  @driving_port @US-005 @contract-shape:pure-function
   Scenario: Round trip is lossless
     Given his record holds an entry for every day from 1 May 2026 to 21 July 2026
     And he toggled to the Raw view at "3M"
     When he switches the graph to Trend
     Then the Trend view is shown at "3M"
 
-  @pending @driving_port @US-005 @contract-shape:pure-function
+  @driving_port @US-005 @contract-shape:pure-function
   Scenario: The trend is the default lens
     Given his record holds an entry for every day from 1 May 2026 to 21 July 2026
     When he opens the graph
     Then the trend view is shown first
 
-  @pending @driving_port @kpi @real-io @adapter-integration @US-004 @contract-shape:bounded-change
+  @driving_port @kpi @real-io @adapter-integration @US-004 @contract-shape:bounded-change
   Scenario: Opening the trend counts toward engagement
     Given his record holds an entry for every day from 1 July 2026 to 21 July 2026
     When he opens the trend at "1M"

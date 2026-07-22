@@ -6,8 +6,9 @@ built over the entry store port, the access gate, and the clock port.
 
 Current scope: login, save-entry (confirmed and rejected paths, inline
 messaging), history read-back, trend read-back (smoothed line, windowed
-output), graph page, telemetry counts, entry-screen page shell.
-Remaining surface (manifest, trend-view telemetry) lands with its
+output, trend-view telemetry), graph page (trend default lens, Trend/Raw
+toggle sharing the selected window), telemetry counts, entry-screen page
+shell. Remaining surface (manifest, speed report) lands with its
 dedicated steps.
 """
 
@@ -16,7 +17,7 @@ from __future__ import annotations
 import json
 import sys
 from collections.abc import Callable, Sequence
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
@@ -26,6 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from weight_tracker.core.types import (
+    SCALE_WINDOW_DAYS,
     Entry,
     Rejected,
     RejectionReason,
@@ -80,6 +82,12 @@ _templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 _static_dir = Path(__file__).parent / "static"
 
 
+def _kpi_week_start(today: date) -> date:
+    """Rolling KPI week (/stats `trend_views_this_week`): the last 7 days inclusive
+    of today -- the same window the 1W scale shows (pure calendar arithmetic)."""
+    return today - timedelta(days=SCALE_WINDOW_DAYS[TimeScale.ONE_WEEK] - 1)
+
+
 def _log_auth_event(name: str) -> None:
     """Structured auth trail: auth.login.{ok,rejected,rate_limited} (ADR-003)."""
     print(json.dumps({"event": name}), file=sys.stderr)
@@ -91,6 +99,7 @@ def build_router(
     gate: AccessGate,
     clock: ClockPort,
     trend_series_in: TrendProjection,
+    count_events_since: Callable[[str, date], int],
     replication_status: Callable[[], str],
 ) -> APIRouter:
     router = APIRouter()
@@ -164,8 +173,17 @@ def build_router(
 
     @router.get("/trend")
     def trend(scale: str = "ALL") -> dict[str, Any]:
-        """Smoothed trend line for the selected scale (full recompute per read, ADR-004)."""
-        points = trend_series_in(store.all_entries(), TimeScale(scale), clock.now_utc().date())
+        """Smoothed trend line for the selected scale (full recompute per read, ADR-004).
+
+        Every open is a KPI-3 engagement signal: one trend.view.opened event goes
+        onto the append-only trail before the line is returned."""
+        opened_at = clock.now_utc()
+        points = trend_series_in(store.all_entries(), TimeScale(scale), opened_at.date())
+        store.append_event(
+            ts=opened_at.isoformat(),
+            name=TREND_VIEW_OPENED_EVENT,
+            payload=json.dumps({"scale": scale}),
+        )
         return {
             "points": [
                 {"date": point.day.isoformat(), "trend_kg": point.trend_kg} for point in points
@@ -173,8 +191,10 @@ def build_router(
         }
 
     @router.get("/graph")
-    def graph_page(request: Request, view: str = "raw", scale: str = "3M") -> Response:
-        """Raw history graph page (uPlot, vendored). The core windows; this shell renders."""
+    def graph_page(request: Request, view: str = "trend", scale: str = "3M") -> Response:
+        """Graph page (uPlot, vendored). Trend is the default lens on open (A4);
+        view and scale round-trip through the query string, so toggling the lens
+        never loses the chosen window. The core windows; this shell renders."""
         return _templates.TemplateResponse(
             request=request,
             name="graph.html",
@@ -191,6 +211,9 @@ def build_router(
         return {
             "entry_logged_count": store.count_events(ENTRY_SAVED_EVENT),
             "trend_view_opened_count": store.count_events(TREND_VIEW_OPENED_EVENT),
+            "trend_views_this_week": count_events_since(
+                TREND_VIEW_OPENED_EVENT, _kpi_week_start(clock.now_utc().date())
+            ),
         }
 
     @router.get("/healthz")
