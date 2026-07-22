@@ -34,27 +34,27 @@ Feature: Backfill and correct past days
     Then the save is rejected because the value must be between 30.0 and 250.0 kg
     And his record is unchanged
 
-  @pending @driving_port @US-003 @contract-shape:unbounded-preservation
+  @driving_port @US-003 @contract-shape:unbounded-preservation
   Scenario: Saving the same value again changes nothing
     Given he logged 82.4 kg on 19 July 2026
     When he logs "82.4" for 19 July 2026
     Then 19 July 2026 holds exactly one entry of 82.4 kg
     And the record is exactly as before
 
-  @pending @driving_port @US-003 @contract-shape:bounded-change
+  @driving_port @US-003 @contract-shape:bounded-change
   Scenario: A phone already in tomorrow may log its new day
     Given his phone is already in 22 July 2026
     When he logs "82.4" for 22 July 2026
     Then 22 July 2026 holds exactly one entry of 82.4 kg
 
-  @pending @driving_port @error @US-003 @contract-shape:unbounded-preservation
+  @driving_port @error @US-003 @contract-shape:unbounded-preservation
   Scenario: A date two days ahead is rejected even from a skewed phone
     Given his phone is already in 22 July 2026
     When he logs "82.4" for 23 July 2026
     Then the save is rejected because future dates cannot be logged
     And nothing is stored
 
-  @pending @driving_port @error @US-003 @contract-shape:unbounded-preservation
+  @driving_port @error @US-003 @contract-shape:unbounded-preservation
   Scenario: An unrecognisable date is rejected safely
     When he submits a weight for an unrecognisable date
     Then the save is rejected because the date is not recognisable
