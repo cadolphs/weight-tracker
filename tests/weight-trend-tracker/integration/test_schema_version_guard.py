@@ -86,8 +86,9 @@ def test_db_version_ahead_of_code_refuses_start(
             "CREATE TABLE IF NOT EXISTS schema_version"
             " (version INTEGER PRIMARY KEY, applied_ts TEXT NOT NULL)"
         )
-        connection.execute(
-            "INSERT INTO schema_version (version, applied_ts) VALUES (99, '2099-01-01T00:00:00')"
+        connection.execute(  # the VERY NEXT version: pins the exact refusal boundary
+            "INSERT INTO schema_version (version, applied_ts) VALUES (?, '2099-01-01T00:00:00')",
+            (CURRENT_SCHEMA_VERSION + 1,),
         )
         connection.commit()
 
