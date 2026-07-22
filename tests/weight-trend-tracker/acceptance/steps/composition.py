@@ -267,7 +267,7 @@ class LoggingService(_Service):
         if getattr(ctx, "before", None) is None:
             return  # observation without a captured mutation (e.g. after a restart)
         expected_entries = tuple(
-            sorted({d: w for d, w in ctx.before["record.entries"]} | {day: kg}.items())
+            sorted(({d: w for d, w in ctx.before["record.entries"]} | {day: kg}).items())
         )
         after = {**after, "record.entries": tuple(sorted(after["record.entries"]))}
         assert_state_delta(

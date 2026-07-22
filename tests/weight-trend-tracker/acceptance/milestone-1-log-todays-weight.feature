@@ -57,19 +57,19 @@ Feature: Log today's weight in seconds
     Then the save is rejected because a weight is required
     And nothing is stored
 
-  @pending @driving_port @US-001 @contract-shape:bounded-change
+  @driving_port @US-001 @contract-shape:bounded-change
   Scenario: Re-saving today replaces rather than duplicates
     Given he has already logged 82.4 kg for today
     When he logs "82.1" for today
     Then today holds exactly one entry of 82.1 kg
 
-  @pending @driving_port @real-io @adapter-integration @US-001 @contract-shape:unbounded-preservation
+  @driving_port @real-io @adapter-integration @US-001 @contract-shape:unbounded-preservation
   Scenario: A confirmed save survives a restart
     Given he has already logged 82.4 kg for today
     When the tracker is restarted
     Then today holds exactly one entry of 82.4 kg
 
-  @pending @driving_port @US-001 @contract-shape:bounded-change
+  @driving_port @US-001 @contract-shape:bounded-change
   Scenario: A log just after midnight belongs to the phone's new day
     Given his phone is already in 22 July 2026
     When he logs "82.4" for today
