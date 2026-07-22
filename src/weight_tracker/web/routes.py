@@ -109,16 +109,19 @@ def speed_summary(samples: Sequence[int]) -> dict[str, Any]:
     if not samples:
         return {"median_ms": None, "p90_ms": None, "sample_count": 0}
     ordered = sorted(samples)
-    p90_ms = (
-        ordered[-1]
-        if len(ordered) == 1
-        else statistics.quantiles(ordered, n=10, method="inclusive")[-1]
-    )
     return {
         "median_ms": statistics.median(ordered),
-        "p90_ms": p90_ms,
+        "p90_ms": _p90(ordered),
         "sample_count": len(ordered),
     }
+
+
+def _p90(ordered_samples: Sequence[int]) -> float:
+    """Worst-case-but-one duration: the 90th percentile (last decile boundary,
+    inclusive method so it never extrapolates past the observed worst case)."""
+    if len(ordered_samples) == 1:
+        return float(ordered_samples[0])
+    return float(statistics.quantiles(ordered_samples, n=10, method="inclusive")[-1])
 
 
 def _kpi_week_start(today: date) -> date:
@@ -174,11 +177,11 @@ def build_router(
     def entry_screen(request: Request) -> Response:
         """Five-second entry screen: focused decimal field, yesterday's weight as
         the anchor beside the input (absent gracefully on the first morning)."""
-        previous_day = clock.now_utc().date() - timedelta(days=1)
+        yesterday = clock.now_utc().date() - timedelta(days=1)
         return _templates.TemplateResponse(
             request=request,
             name="index.html",
-            context={"yesterday_kg": weight_on(store.all_entries(), previous_day)},
+            context={"yesterday_kg": weight_on(store.all_entries(), yesterday)},
         )
 
     @router.get("/manifest.webmanifest")
