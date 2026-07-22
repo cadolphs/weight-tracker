@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
@@ -44,7 +45,13 @@ def _log_auth_event(name: str) -> None:
     print(json.dumps({"event": name}), file=sys.stderr)
 
 
-def build_router(*, store: EntryStorePort, gate: AccessGate, clock: ClockPort) -> APIRouter:
+def build_router(
+    *,
+    store: EntryStorePort,
+    gate: AccessGate,
+    clock: ClockPort,
+    replication_status: Callable[[], str],
+) -> APIRouter:
     router = APIRouter()
 
     @router.post("/login")
@@ -113,6 +120,17 @@ def build_router(*, store: EntryStorePort, gate: AccessGate, clock: ClockPort) -
         return {
             "entry_logged_count": store.count_events(ENTRY_SAVED_EVENT),
             "trend_view_opened_count": store.count_events(TREND_VIEW_OPENED_EVENT),
+        }
+
+    @router.get("/healthz")
+    def healthz() -> dict[str, str]:
+        """Unauthenticated operational surface: status only, never record data.
+
+        Serving at all means every startup probe passed (build_app refuses otherwise)."""
+        return {
+            "status": "ok",
+            "startup_probe": "passed",
+            "replication": replication_status(),
         }
 
     return router

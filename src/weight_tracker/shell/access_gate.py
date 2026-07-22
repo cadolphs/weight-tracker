@@ -10,8 +10,9 @@ passphrase waits out the cooldown. The throttle decision logic is pure
 (state value in, verdict/new state out); the gate holds one mutable
 reference and the current instant arrives from the injected clock.
 
-Session ageing (90-day expiry judged against the injected clock) lands
-with its dedicated access-protection steps.
+Session ageing (ADR-003): the signed token embeds its issue instant, and
+expiry is a pure judgement of that instant against the injected clock's
+now -- an unlock lasts 90 days, then the passphrase is asked again.
 """
 
 from __future__ import annotations
@@ -26,8 +27,11 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from itsdangerous import BadSignature, Signer
 
+from weight_tracker.ports import ClockPort
+
 SESSION_COOKIE = "session"
-SESSION_MAX_AGE_SECONDS = 90 * 24 * 60 * 60
+SESSION_LIFETIME = timedelta(days=90)
+SESSION_MAX_AGE_SECONDS = int(SESSION_LIFETIME.total_seconds())
 
 #: Routes reachable while LOCKED: the login door itself and the health surface.
 OPEN_PATHS = frozenset({"/login", "/healthz"})
@@ -60,6 +64,11 @@ def after_wrong_passphrase(state: ThrottleState, now: datetime) -> ThrottleState
 
 def after_right_passphrase() -> ThrottleState:
     return ThrottleState()
+
+
+def session_fresh(issued_at: datetime, now: datetime) -> bool:
+    """Pure expiry judgement: an unlock lasts SESSION_LIFETIME from its issue instant."""
+    return now - issued_at < SESSION_LIFETIME
 
 
 @dataclass(frozen=True)
@@ -116,18 +125,22 @@ class AccessGate:
     def issue_session(self, issued_at: datetime) -> str:
         return self._signer.sign(issued_at.isoformat()).decode()
 
-    def session_open(self, session_token: str | None) -> bool:
+    def session_open(self, session_token: str | None, now: datetime) -> bool:
+        """A session is open when its signature holds AND its embedded issue instant is fresh."""
         if not session_token:
             return False
         try:
-            self._signer.unsign(session_token)
-        except BadSignature:
+            issued_at_raw = self._signer.unsign(session_token).decode()
+            issued_at = datetime.fromisoformat(issued_at_raw)
+        except (BadSignature, ValueError):
             return False
-        return True
+        return session_fresh(issued_at, now)
 
 
-def install_access_gate(app: FastAPI, gate: AccessGate) -> None:
-    """Guard all routes behind the gate, leaving only OPEN_PATHS reachable while locked."""
+def install_access_gate(app: FastAPI, gate: AccessGate, clock: ClockPort) -> None:
+    """Guard all routes behind the gate, leaving only OPEN_PATHS reachable while locked.
+
+    Session age is judged against the injected clock (never the wall clock)."""
 
     @app.middleware("http")
     async def guard_routes(
@@ -135,6 +148,6 @@ def install_access_gate(app: FastAPI, gate: AccessGate) -> None:
     ) -> Response:
         if request.url.path in OPEN_PATHS:
             return await call_next(request)
-        if gate.session_open(request.cookies.get(SESSION_COOKIE)):
+        if gate.session_open(request.cookies.get(SESSION_COOKIE), now=clock.now_utc()):
             return await call_next(request)
         return JSONResponse({"detail": "locked"}, status_code=401)

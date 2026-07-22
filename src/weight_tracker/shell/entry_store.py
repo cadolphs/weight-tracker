@@ -37,6 +37,14 @@ _SCHEMA = (
 )
 
 
+def replication_status(db_path: Path) -> str:
+    """Replication signal for /healthz: Litestream keeps its generations directory
+    beside the record; where it is absent (local runs, no sidecar) the honest
+    answer is n/a rather than a pretended lag figure."""
+    litestream_dir = db_path.parent / f".{db_path.name}-litestream"
+    return "active" if litestream_dir.exists() else "n/a"
+
+
 def _filesystem_type_of(path: Path) -> str | None:
     """Filesystem type holding `path`, or None where it cannot be determined (no /proc)."""
     try:

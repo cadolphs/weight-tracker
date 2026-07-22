@@ -33,26 +33,26 @@ Feature: The record is protected
     When he tries the wrong passphrase 10 times in a row
     Then further attempts are turned away for a while
 
-  @pending @driving_port @US-001 @contract-shape:pure-function
+  @driving_port @US-001 @contract-shape:pure-function
   Scenario: An unlock lasts across seasons
     Given Clemens has unlocked the tracker with his passphrase
     And 89 days have passed
     When he opens his record
     Then his record is open to him
 
-  @pending @driving_port @error @US-001 @contract-shape:pure-function
+  @driving_port @error @US-001 @contract-shape:pure-function
   Scenario: After three months the passphrase is asked again
     Given Clemens has unlocked the tracker with his passphrase
     And 91 days have passed
     When he opens his record
     Then he is asked for the passphrase again
 
-  @pending @driving_port @contract-shape:pure-function
+  @driving_port @contract-shape:pure-function
   Scenario: The tracker's health can be checked without the passphrase
     When he checks the tracker's health
     Then the tracker reports itself healthy without the passphrase
 
-  @pending @driving_port @error @real-io @US-001 @contract-shape:unbounded-preservation
+  @driving_port @error @real-io @US-001 @contract-shape:unbounded-preservation
   Scenario: A record that cannot be stored safely refuses to open
     Given the record's home cannot be written to
     When the tracker starts

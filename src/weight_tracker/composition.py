@@ -18,7 +18,7 @@ from fastapi import FastAPI
 
 from weight_tracker.ports import ClockPort
 from weight_tracker.shell.access_gate import AccessGate, install_access_gate
-from weight_tracker.shell.entry_store import SqliteEntryStore
+from weight_tracker.shell.entry_store import SqliteEntryStore, replication_status
 from weight_tracker.web.routes import build_router
 
 
@@ -51,8 +51,15 @@ def build_app(
     gate = AccessGate(passphrase_hash=passphrase_hash, session_signing_key=session_signing_key)
     _probe_all_or_refuse({"entry_store": store, "access_gate": gate, "clock": clock})
     app = FastAPI()
-    install_access_gate(app, gate)
-    app.include_router(build_router(store=store, gate=gate, clock=clock))
+    install_access_gate(app, gate, clock)
+    app.include_router(
+        build_router(
+            store=store,
+            gate=gate,
+            clock=clock,
+            replication_status=lambda: replication_status(db_path),
+        )
+    )
     return app
 
 
