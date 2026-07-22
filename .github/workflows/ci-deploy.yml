@@ -1,0 +1,82 @@
+# CI/CD pipeline (feature-delta § DEVOPS CI/CD Pipeline Outline).
+# push to main: gates -> deploy -> smoke. PRs: gates only. Mutation testing is
+# deliberately NOT here — it runs locally in the DELIVER cycle (per-feature strategy).
+name: ci-deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gates:
+    name: quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: sync dependencies (locked)
+        run: uv sync --frozen
+
+      - name: ruff lint
+        run: uv run ruff check .
+
+      - name: ruff format check
+        run: uv run ruff format --check .
+
+      - name: mypy (src, strict)
+        run: uv run mypy
+
+      - name: import-linter (core imports nothing outward)
+        run: uv run lint-imports
+
+      - name: probe-presence AST gate
+        run: uv run python scripts/check_probe_presence.py
+
+      - name: pytest (unit + property + acceptance, ephemeral SQLite)
+        run: uv run pytest -q
+
+  deploy:
+    name: deploy + smoke
+    needs: gates
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # Recreate strategy on a single machine must never overlap (DA-5).
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: fly deploy (recreate)
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: smoke — /healthz 200 with status ok within 3 min
+        run: |
+          app="$(sed -nE "s/^app *= *['\"]?([^'\"]+)['\"]?/\1/p" fly.toml | head -1)"
+          url="https://${app}.fly.dev/healthz"
+          deadline=$(( $(date +%s) + 180 ))
+          while true; do
+            body="$(curl -fsS --max-time 10 "$url" 2>/dev/null || true)"
+            if printf '%s' "$body" | grep -Eq '"status" *: *"ok"'; then
+              echo "smoke OK: $body"
+              break
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::smoke failed: $url did not return 200 with status ok within 3 min"
+              echo "last body: $body"
+              echo "rollback: fly releases -> fly deploy --image registry.fly.io/<app>@<previous-digest>"
+              exit 1
+            fi
+            sleep 10
+          done

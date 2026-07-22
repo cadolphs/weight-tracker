@@ -1,4 +1,6 @@
-"""Project-local state-delta port (Python) -- bootstrapped by DISTILL per nw-distill polyglot contract.
+"""Project-local state-delta port (Python).
+
+Bootstrapped by DISTILL per the nw-distill polyglot contract.
 
 Universe assertion contract: every state-mutating test at layers 1-3 calls
 `assert_state_delta(before, after, universe, expected)`. `universe` declares the
@@ -13,7 +15,8 @@ legacy_healed.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping
+from collections.abc import Callable, Mapping
+from typing import Any
 
 Predicate = Callable[[Any, Any], tuple[bool, str]]
 
@@ -34,7 +37,9 @@ def unchanged() -> Predicate:
 
 def appended_with(item: Any) -> Predicate:
     def check(before: Any, after: Any) -> tuple[bool, str]:
-        ok = list(after)[: len(list(before))] == list(before) and list(after)[len(list(before)):] == [item]
+        ok = list(after)[: len(list(before))] == list(before) and list(after)[
+            len(list(before)) :
+        ] == [item]
         return (ok, f"expected {before!r} appended with {item!r}, got {after!r}")
 
     return check
@@ -77,7 +82,10 @@ def legacy_healed(healthy_value: Any) -> Predicate:
     """Slot held a broken/legacy value before; after must equal the healed value."""
 
     def check(before: Any, after: Any) -> tuple[bool, str]:
-        return (after == healthy_value, f"expected legacy slot healed to {healthy_value!r}, got {after!r}")
+        return (
+            after == healthy_value,
+            f"expected legacy slot healed to {healthy_value!r}, got {after!r}",
+        )
 
     return check
 
@@ -111,6 +119,7 @@ def assert_state_delta(
                 failures.append(f"[{slot}] {msg}")
         elif strict and before[slot] != after[slot]:
             failures.append(
-                f"[{slot}] mutated unexpectedly (no expected entry): {before[slot]!r} -> {after[slot]!r}"
+                f"[{slot}] mutated unexpectedly (no expected entry): "
+                f"{before[slot]!r} -> {after[slot]!r}"
             )
     assert not failures, "state-delta violations:\n" + "\n".join(failures)

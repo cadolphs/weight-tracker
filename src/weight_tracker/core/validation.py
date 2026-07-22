@@ -12,9 +12,9 @@ escape the pure core. `server_utc_today` is a parameter: the core never reads a 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Mapping
 
 from weight_tracker.core.types import (
     MAX_DEVICE_SKEW_DAYS,
@@ -77,7 +77,8 @@ def _parse_weight_decimal(raw: str) -> Decimal | None:
 
 def _has_tenth_precision(weight_kg: Decimal) -> bool:
     """True when the value carries no information finer than 0.1 kg (A2: reject, never round)."""
-    return weight_kg.normalize().as_tuple().exponent >= -1
+    exponent = weight_kg.normalize().as_tuple().exponent
+    return isinstance(exponent, int) and exponent >= -1
 
 
 def _parse_iso_date(raw: str) -> date | None:

@@ -19,7 +19,8 @@ HTTP surface contract (executable spec for DELIVER -- see build_app docstring):
                                                  "invite_first_log": bool}
     POST /entries {date, weight, entry_ms?}  -> {"outcome":"saved","confirmation":...,
                                                  "date","weight_kg"}
-                                              | {"outcome":"rejected","reason":<RejectionReason value>,
+                                              | {"outcome":"rejected",
+                                                 "reason":<RejectionReason value>,
                                                  "echo":<raw input>}   (401 when locked)
     GET  /trend?scale=...                    -> {"points":[{"date","trend_kg"}...]} (+event)
     GET  /graph?view=trend|raw&scale=...     -> HTML with data-view=... data-scale=...
@@ -43,8 +44,6 @@ from types import SimpleNamespace
 from typing import Any
 
 from argon2 import PasswordHasher
-
-from state_delta import assert_state_delta, set_to, unchanged
 from domain_types import (
     TEST_PASSPHRASE,
     RejectionReason,
@@ -53,6 +52,7 @@ from domain_types import (
     parse_day,
 )
 from fake_clock import FakeClock
+from state_delta import assert_state_delta, set_to, unchanged
 
 from weight_tracker.composition import StartupRefused, build_app
 
@@ -260,7 +260,9 @@ class LoggingService(_Service):
         day = self.comp.resolve_day(day_spec).isoformat()
         after = self.comp.capture_universe()
         record = {d: w for d, w in after["record.entries"]}
-        assert record.get(day) == kg, f"expected {day} to hold {kg} kg, record shows {record.get(day)}"
+        assert record.get(day) == kg, (
+            f"expected {day} to hold {kg} kg, record shows {record.get(day)}"
+        )
         assert list(record).count(day) == 1
         if getattr(ctx, "before", None) is None:
             return  # observation without a captured mutation (e.g. after a restart)
@@ -283,9 +285,11 @@ class LoggingService(_Service):
 
     def assert_top_of_history(self, day_spec: str, kg: float) -> None:
         day = self.comp.resolve_day(day_spec).isoformat()
-        top = self.comp.observer().get(
-            "/entries", params={"scale": TimeScale.ALL.value}
-        ).json()["entries"][0]
+        top = (
+            self.comp.observer()
+            .get("/entries", params={"scale": TimeScale.ALL.value})
+            .json()["entries"][0]
+        )
         assert (top["date"], top["weight_kg"]) == (day, kg), (
             f"expected {day} = {kg} at the top of history, got {top}"
         )
@@ -403,9 +407,7 @@ class TrendService(_Service):
 
     def assert_max_daily_step(self, ctx: SimpleNamespace, limit_kg: float) -> None:
         series = sorted(ctx.trend)
-        steps = [
-            (abs(b[1] - a[1]), a[0], b[0]) for a, b in zip(series, series[1:])
-        ]
+        steps = [(abs(b[1] - a[1]), a[0], b[0]) for a, b in zip(series, series[1:], strict=False)]
         worst = max(steps)
         assert worst[0] <= limit_kg + 1e-9, (
             f"trend steps {worst[0]:.3f} kg between {worst[1]} and {worst[2]}; limit {limit_kg} kg"

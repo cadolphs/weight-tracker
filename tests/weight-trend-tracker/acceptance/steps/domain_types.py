@@ -65,7 +65,13 @@ VIEW_WORDS: dict[str, ViewMode] = {
 }
 
 _WEEKDAYS = (
-    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
 )
 
 

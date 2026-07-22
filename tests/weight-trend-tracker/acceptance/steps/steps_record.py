@@ -1,8 +1,8 @@
 """Step vocabulary: logging, validation, durability (US-001, US-003).
 
 Record state machine (C2a):
-    EMPTY --save(day,kg)--> DAY_HELD(day) --save(day,kg')--> DAY_HELD(day)   [replace, never duplicate]
-    any state --save(rejected input)--> unchanged                            [range/precision/date guards]
+    EMPTY --save(day,kg)--> DAY_HELD(day) --save(day,kg')--> DAY_HELD(day)  [replace, not duplicate]
+    any state --save(rejected input)--> unchanged                    [range/precision/date guards]
     any state --save while LOCKED--> unchanged                               [AccessGate]
     any state --restart--> same state                                        [durability]
 Illegal events covered per state: rejected input from EMPTY and DAY_HELD,
@@ -13,11 +13,11 @@ Mandate-12: bodies are <=2 statements delegating to composition services.
 
 from __future__ import annotations
 
+from domain_types import parse_day, parse_reason
 from pytest_bdd import given, parsers, then, when
 
-from domain_types import parse_day, parse_reason
-
 # ---------------------------------------------------------------- Given
+
 
 @given("the tracker is running with an empty record")
 def step_empty_record(composition):
@@ -81,6 +81,7 @@ def step_home_unwritable(composition):
 
 # ---------------------------------------------------------------- When
 
+
 @when(parsers.parse('he logs "{raw}" for {day_spec}'))
 def step_logs_for(composition, ctx, raw, day_spec):
     ctx.before, ctx.raw_input = composition.capture_universe(), raw
@@ -121,6 +122,7 @@ def step_starts(composition, ctx):
 
 
 # ---------------------------------------------------------------- Then
+
 
 @then(parsers.parse('he sees the confirmation "{text}"'))
 def step_sees_confirmation(composition, ctx, text):

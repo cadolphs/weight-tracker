@@ -11,11 +11,12 @@ with their dedicated access-protection steps.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 
 import argon2
 from argon2.exceptions import VerifyMismatchError
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from itsdangerous import BadSignature, Signer
 
@@ -63,7 +64,9 @@ def install_access_gate(app: FastAPI, gate: AccessGate) -> None:
     """Guard all routes behind the gate, leaving only OPEN_PATHS reachable while locked."""
 
     @app.middleware("http")
-    async def guard_routes(request: Request, call_next):
+    async def guard_routes(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         if request.url.path in OPEN_PATHS:
             return await call_next(request)
         if gate.session_open(request.cookies.get(SESSION_COOKIE)):

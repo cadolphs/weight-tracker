@@ -12,7 +12,6 @@ import os
 from types import SimpleNamespace
 
 import pytest
-
 from composition import TrackerComposition
 from fake_clock import FakeClock
 

@@ -9,11 +9,11 @@ of the CURRENT line -- never immutability of previously rendered values.
 
 from __future__ import annotations
 
+from domain_types import ViewMode, parse_day, parse_scale, parse_view
 from pytest_bdd import given, parsers, then, when
 
-from domain_types import ViewMode, parse_day, parse_scale, parse_view
-
 # ---------------------------------------------------------------- Given
+
 
 @given(parsers.parse('he has noted the current trend at "{scale}"'))
 def step_noted_trend(composition, ctx, scale):
@@ -33,6 +33,7 @@ def step_toggled_raw(composition, ctx, scale):
 
 
 # ---------------------------------------------------------------- When
+
 
 @when(parsers.parse('he opens his history at "{scale}"'))
 def step_opens_history(composition, ctx, scale):
@@ -70,6 +71,7 @@ def step_opens_speed_report(composition, ctx):
 
 
 # ---------------------------------------------------------------- Then
+
 
 @then(parsers.parse("only entries from {start} to {end} are shown"))
 def step_only_between(composition, ctx, start, end):

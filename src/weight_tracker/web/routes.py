@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 
@@ -34,7 +35,7 @@ def build_router(*, store: EntryStorePort, gate: AccessGate, clock: ClockPort) -
     router = APIRouter()
 
     @router.post("/login")
-    async def login(request: Request):
+    async def login(request: Request) -> JSONResponse:
         form = parse_qs((await request.body()).decode())
         passphrase = form.get("passphrase", [""])[0]
         if not gate.passphrase_matches(passphrase):
@@ -50,11 +51,11 @@ def build_router(*, store: EntryStorePort, gate: AccessGate, clock: ClockPort) -
         return response
 
     @router.get("/")
-    def entry_screen(request: Request):
+    def entry_screen(request: Request) -> Response:
         return _templates.TemplateResponse(request=request, name="index.html")
 
     @router.post("/entries")
-    async def save_entry(request: Request):
+    async def save_entry(request: Request) -> dict[str, Any]:
         submitted = await request.json()
         weight_kg = validate_weight(str(submitted.get("weight", "")))
         day = validate_entry_date(
@@ -77,18 +78,17 @@ def build_router(*, store: EntryStorePort, gate: AccessGate, clock: ClockPort) -
         }
 
     @router.get("/entries")
-    def history(scale: str = "ALL"):
+    def history(scale: str = "ALL") -> dict[str, Any]:
         entries = store.all_entries()  # newest first; scale windowing lands in later steps
         return {
             "entries": [
-                {"date": entry.day.isoformat(), "weight_kg": entry.weight_kg}
-                for entry in entries
+                {"date": entry.day.isoformat(), "weight_kg": entry.weight_kg} for entry in entries
             ],
             "invite_first_log": not entries,
         }
 
     @router.get("/stats")
-    def stats():
+    def stats() -> dict[str, Any]:
         return {
             "entry_logged_count": store.count_events(ENTRY_SAVED_EVENT),
             "trend_view_opened_count": store.count_events(TREND_VIEW_OPENED_EVENT),

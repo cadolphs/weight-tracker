@@ -11,11 +11,11 @@ Access state machine (C2a):
 
 from __future__ import annotations
 
+from composition import WRONG_PASSPHRASE
 from pytest_bdd import given, parsers, then, when
 
-from composition import WRONG_PASSPHRASE
-
 # ---------------------------------------------------------------- Given
+
 
 @given("Clemens has unlocked the tracker with his passphrase")
 def step_unlocked(composition):
@@ -28,6 +28,7 @@ def step_days_passed(composition, n):
 
 
 # ---------------------------------------------------------------- When
+
 
 @when("he unlocks the tracker with his passphrase")
 def step_unlocks(composition, ctx):
@@ -55,6 +56,7 @@ def step_checks_health(composition, ctx):
 
 
 # ---------------------------------------------------------------- Then
+
 
 @then("his record is open to him")
 def step_record_open(composition):

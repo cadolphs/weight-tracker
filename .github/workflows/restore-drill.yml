@@ -1,0 +1,116 @@
+# Weekly restore drill — the contract test for the only external integration (R2).
+# feature-delta § DEVOPS CI/CD Pipeline Outline: restore latest generation to scratch,
+# integrity-check, row-count compare vs previous drill state (C-001); every 4th run
+# additionally exercises point-in-time restore with -timestamp now-7d (H-002).
+# Failure => red workflow + GitHub email: durability guardrail no longer discharged —
+# follow docs/product/architecture/runbook-restore.md.
+#
+# GitHub secrets used (read-only drill credentials only, secret-setup.md):
+#   R2_REPLICA_URL, R2_READONLY_ACCESS_KEY_ID, R2_READONLY_SECRET_ACCESS_KEY
+name: restore-drill
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'   # weekly, Monday 06:17 UTC
+  workflow_dispatch:
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    env:
+      REPLICA_URL: ${{ secrets.R2_REPLICA_URL }}
+      LITESTREAM_ACCESS_KEY_ID: ${{ secrets.R2_READONLY_ACCESS_KEY_ID }}
+      LITESTREAM_SECRET_ACCESS_KEY: ${{ secrets.R2_READONLY_SECRET_ACCESS_KEY }}
+    steps:
+      - name: install litestream 0.3.13 (exact — never latest)
+        run: |
+          curl -fsSL -o /tmp/litestream.deb \
+            https://github.com/benbjohnson/litestream/releases/download/v0.3.13/litestream-v0.3.13-linux-amd64.deb
+          sudo dpkg -i /tmp/litestream.deb
+          litestream version
+
+      - name: download previous drill state (restore-drill-state artifact)
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p previous
+          artifact_run_id="$(gh api "repos/${{ github.repository }}/actions/artifacts?name=restore-drill-state&per_page=1" \
+            --jq '.artifacts[0].workflow_run.id // empty')"
+          if [ -n "$artifact_run_id" ]; then
+            gh run download "$artifact_run_id" --repo "${{ github.repository }}" \
+              -n restore-drill-state -D previous || true
+          fi
+          if [ -f previous/drill-state.json ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: restore latest generation to scratch
+        run: |
+          mkdir -p scratch
+          litestream restore -o scratch/weight.db "$REPLICA_URL"
+
+      - name: integrity check + row-count sanity
+        run: |
+          result="$(sqlite3 scratch/weight.db 'PRAGMA integrity_check;')"
+          test "$result" = "ok" || { echo "::error::integrity_check: $result"; exit 1; }
+          entries_count="$(sqlite3 scratch/weight.db 'SELECT COUNT(*) FROM entries;')"
+          echo "ENTRIES_COUNT=$entries_count" >> "$GITHUB_ENV"
+          echo "restored entries_count=$entries_count"
+
+      - name: compare against previous drill state (entries are replace-only, never deleted)
+        run: |
+          if [ "${{ steps.previous.outputs.found }}" = "true" ]; then
+            previous_count="$(python3 -c "import json; print(json.load(open('previous/drill-state.json'))['entries_count'])")"
+            run_index="$(python3 -c "import json; print(json.load(open('previous/drill-state.json')).get('run_index', 0) + 1)")"
+            if [ "$ENTRIES_COUNT" -lt "$previous_count" ]; then
+              echo "::error::restored entries_count $ENTRIES_COUNT < previous $previous_count — durability guardrail violated; follow docs/product/architecture/runbook-restore.md"
+              exit 1
+            fi
+          else
+            run_index=1
+            echo "drill.baseline.recorded — no prior restore-drill-state artifact; comparison skipped"
+          fi
+          echo "RUN_INDEX=$run_index" >> "$GITHUB_ENV"
+          if [ "$(( run_index % 4 ))" -eq 0 ]; then
+            echo "PITR_DUE=true" >> "$GITHUB_ENV"
+          else
+            echo "PITR_DUE=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: PITR variant — every 4th run, restore -timestamp now-7d (H-002)
+        if: env.PITR_DUE == 'true'
+        run: |
+          pitr_ts="$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+          mkdir -p scratch-pitr
+          litestream restore -timestamp "$pitr_ts" -o scratch-pitr/weight.db "$REPLICA_URL"
+          result="$(sqlite3 scratch-pitr/weight.db 'PRAGMA integrity_check;')"
+          test "$result" = "ok" || { echo "::error::PITR integrity_check: $result"; exit 1; }
+          echo "PITR restore to $pitr_ts verified"
+
+      - name: write drill-state.json
+        run: |
+          restored_wal_ts="$(sqlite3 scratch/weight.db "SELECT COALESCE(MAX(logged_at), '') FROM entries;")"
+          python3 - "$ENTRIES_COUNT" "$RUN_INDEX" "$restored_wal_ts" <<'PY'
+          import json, sys
+          from datetime import datetime, timezone
+          entries_count, run_index, restored_wal_ts = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+          state = {
+              "run_ts": datetime.now(timezone.utc).isoformat(),
+              "entries_count": entries_count,
+              "restored_wal_ts": restored_wal_ts,
+              "run_index": run_index,
+          }
+          with open("drill-state.json", "w") as f:
+              json.dump(state, f, indent=2)
+          print(json.dumps(state, indent=2))
+          PY
+
+      - name: persist drill state (90-day retention, ≫ 7-day cadence)
+        uses: actions/upload-artifact@v4
+        with:
+          name: restore-drill-state
+          path: drill-state.json
+          retention-days: 90

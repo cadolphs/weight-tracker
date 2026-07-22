@@ -1,0 +1,60 @@
+# Local quality gates (feature-delta § DEVOPS: local gates mirror the CI commit stage —
+# same tools, same configs, via `uv run` against pyproject.toml).
+#   pre-commit: ruff + probe-presence AST hook
+#   pre-push:   ruff + mypy + import-linter + pytest
+#
+# COEXISTENCE RULE (must_not_break): nWave workflow hooks may live in .git/hooks.
+# NEVER overwrite an existing .git/hooks entry. If .git/hooks/pre-commit or pre-push
+# already exists and is not pre-commit-managed, chain by adding
+#   `pre-commit run --hook-stage <stage>` to the existing script instead of running
+#   `pre-commit install`. Only install directly when the hook files are absent:
+#   pre-commit install --hook-type pre-commit --hook-type pre-push
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --force-exclude
+        language: system
+        types: [python]
+        stages: [pre-commit, pre-push]
+
+      - id: ruff-format-check
+        name: ruff format --check
+        entry: uv run ruff format --check --force-exclude
+        language: system
+        types: [python]
+        stages: [pre-commit, pre-push]
+
+      - id: probe-presence
+        name: driven adapters define probe() (AST gate)
+        entry: uv run python scripts/check_probe_presence.py
+        language: system
+        pass_filenames: false
+        files: ^src/weight_tracker/shell/
+        stages: [pre-commit, pre-push]
+
+      - id: mypy
+        name: mypy (src, strict)
+        entry: uv run mypy
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]
+
+      - id: import-linter
+        name: import-linter (core imports nothing outward)
+        entry: uv run lint-imports
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]
+
+      - id: pytest
+        name: pytest (full suite)
+        entry: uv run pytest -q
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]

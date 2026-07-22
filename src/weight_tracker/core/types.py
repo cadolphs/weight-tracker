@@ -32,12 +32,12 @@ class ViewMode(Enum):
 class RejectionReason(Enum):
     """Closed set of save-rejection reasons. No other rejection reason may exist (C6c)."""
 
-    OUT_OF_RANGE = "out_of_range"          # outside 30.0-250.0 kg (A1)
-    BAD_PRECISION = "bad_precision"        # finer than 0.1 kg (A2)
-    NOT_A_WEIGHT = "not_a_weight"          # unparseable weight input
-    MISSING_VALUE = "missing_value"        # empty submit
-    FUTURE_DATE = "future_date"            # beyond device-skew bound (server UTC date + 1)
-    BAD_DATE = "bad_date"                  # unparseable date
+    OUT_OF_RANGE = "out_of_range"  # outside 30.0-250.0 kg (A1)
+    BAD_PRECISION = "bad_precision"  # finer than 0.1 kg (A2)
+    NOT_A_WEIGHT = "not_a_weight"  # unparseable weight input
+    MISSING_VALUE = "missing_value"  # empty submit
+    FUTURE_DATE = "future_date"  # beyond device-skew bound (server UTC date + 1)
+    BAD_DATE = "bad_date"  # unparseable date
 
 
 # Validation constants (System Constraints A1/A2)

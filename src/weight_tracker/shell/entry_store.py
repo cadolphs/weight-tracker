@@ -140,10 +140,11 @@ class SqliteEntryStore:
 
     def count_events(self, name: str) -> int:
         with closing(self._connect()) as connection:
-            return connection.execute(
+            row = connection.execute(
                 "SELECT COUNT(*) FROM events WHERE name = ?", (name,)
-            ).fetchone()[0]
+            ).fetchone()
+        return int(row[0])
 
 
-def _entry_from_row(row: tuple) -> Entry:
+def _entry_from_row(row: tuple[str, float, int | None]) -> Entry:
     return Entry(day=date.fromisoformat(row[0]), weight_kg=row[1], entry_ms=row[2])

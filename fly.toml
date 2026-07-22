@@ -1,0 +1,36 @@
+# Fly.io app config — single machine, single region, recreate deploys (DEVOPS Decision 6).
+# Secrets (never here): PASSPHRASE_HASH, SESSION_SIGNING_KEY, REPLICA_URL,
+# LITESTREAM_ACCESS_KEY_ID, LITESTREAM_SECRET_ACCESS_KEY — set per secret-setup.md.
+
+app = 'weight-tracker'
+primary_region = 'ewr'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+# The 1 GB data volume; deploys must never detach or recreate it (DA-2, coexistence rule).
+[mounts]
+  source = 'data'
+  destination = '/data'
+
+[env]
+  DB_PATH = '/data/weight.db'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Litestream must stream the WAL continuously — the machine never auto-stops.
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '15s'
+    method = 'GET'
+    path = '/healthz'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '256mb'

@@ -17,6 +17,10 @@ dev = [
     "pytest-bdd>=7.3",
     "hypothesis>=6",
     "httpx>=0.27",
+    "ruff>=0.12",
+    "mypy>=1.16",
+    "import-linter>=2.3",
+    "pre-commit>=4.0",
 ]
 
 [build-system]
@@ -51,3 +55,59 @@ markers = [
     "contract_shape_bounded_change: contract shape tag",
     "contract_shape_unbounded_preservation: contract shape tag",
 ]
+
+# --- Static gates (DEVOPS pipeline outline; local gates mirror CI commit stage) ---
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# TEMPORARY (step 01-04): trend core + its property suite are owned by a concurrently
+# running DELIVER step; lint cleanup (UP035, B905, formatting) deferred to that owner.
+# Remove these carve-outs once step 01-03/trend work is fully landed.
+"src/weight_tracker/core/trend.py" = ["UP035", "B905"]
+"tests/weight-trend-tracker/acceptance/properties/test_trend_math_properties.py" = ["B905"]
+
+[tool.mypy]
+# DEVOPS outline says `mypy --strict`; scoped to src/ (production code). Test code
+# (pytest-bdd decorator stacks, Hypothesis strategies) is exercised by pytest itself
+# and is deliberately outside the strict surface — documented deviation.
+files = ["src"]
+strict = true
+
+[[tool.mypy.overrides]]
+# TEMPORARY (step 01-04): trend core is owned by a concurrently running DELIVER step;
+# its Optional-narrowing cleanup belongs to that owner. Remove once trend work lands.
+module = "weight_tracker.core.trend"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+# Walking-skeleton scope (routes.py docstring): the Rejected branch of validate_weight /
+# validate_entry_date is deliberately unhandled until the milestone-1 error scenarios
+# (currently @pending) drive it. Narrowing lands with that step; remove this override then.
+module = "weight_tracker.web.routes"
+disable_error_code = ["arg-type", "union-attr"]
+
+[tool.importlinter]
+root_package = "weight_tracker"
+
+[[tool.importlinter.contracts]]
+name = "Functional core imports nothing from the shell (brief.md dependency rule)"
+type = "forbidden"
+source_modules = ["weight_tracker.core"]
+forbidden_modules = [
+    "weight_tracker.shell",
+    "weight_tracker.web",
+    "weight_tracker.composition",
+    "weight_tracker.main",
+    "weight_tracker.ports",
+]
+
+[tool.ruff.format]
+# TEMPORARY (step 01-04): same concurrent-ownership carve-out as per-file-ignores above.
+exclude = ["src/weight_tracker/core/trend.py"]

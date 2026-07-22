@@ -12,8 +12,8 @@ from datetime import date, timedelta
 import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
-
 from state_delta import assert_state_delta, set_to
+
 from weight_tracker.core.types import (
     MAX_DEVICE_SKEW_DAYS,
     MAX_WEIGHT_KG,
@@ -39,7 +39,7 @@ def test_every_plausible_tenth_precision_weight_is_accepted(kg):
 
 @given(
     kg=st.one_of(
-        st.integers(0, 299).map(lambda i: i / 10),      # 0.0..29.9
+        st.integers(0, 299).map(lambda i: i / 10),  # 0.0..29.9
         st.integers(2501, 9999).map(lambda i: i / 10),  # 250.1..999.9
     )
 )
@@ -69,8 +69,8 @@ def test_hostile_input_never_crashes_and_reasons_form_a_closed_set(raw):
 
 @given(today=days, offset=st.integers(-3650, 365))
 @settings(max_examples=200, deadline=None)
-@example(today=date(2026, 7, 21), offset=1)   # phone one timezone ahead: allowed
-@example(today=date(2026, 7, 21), offset=2)   # two days ahead: rejected
+@example(today=date(2026, 7, 21), offset=1)  # phone one timezone ahead: allowed
+@example(today=date(2026, 7, 21), offset=2)  # two days ahead: rejected
 def test_dates_are_accepted_exactly_up_to_the_device_skew_bound(today, offset):
     candidate = today + timedelta(days=offset)
     result = validate_entry_date(candidate.isoformat(), server_utc_today=today)
