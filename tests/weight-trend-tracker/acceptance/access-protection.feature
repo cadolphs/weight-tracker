@@ -7,28 +7,28 @@ Feature: The record is protected
     Given the tracker is running with an empty record
     And today is Tuesday 21 July 2026
 
-  @pending @driving_port @US-001 @contract-shape:bounded-change
+  @driving_port @US-001 @contract-shape:bounded-change
   Scenario: The right passphrase opens his record
     When he unlocks the tracker with his passphrase
     Then his record is open to him
 
-  @pending @driving_port @error @US-001 @contract-shape:unbounded-preservation
+  @driving_port @error @US-001 @contract-shape:unbounded-preservation
   Scenario: A wrong passphrase keeps the record closed
     When he tries the wrong passphrase
     Then his record stays hidden
 
-  @pending @driving_port @error @US-001 @contract-shape:unbounded-preservation
+  @driving_port @error @US-001 @contract-shape:unbounded-preservation
   Scenario: Without the passphrase the record stays hidden
     When he opens his record
     Then his record stays hidden
 
-  @pending @driving_port @error @US-001 @contract-shape:unbounded-preservation
+  @driving_port @error @US-001 @contract-shape:unbounded-preservation
   Scenario: Without the passphrase nothing can be added to the record
     When he logs "82.4" for today
     Then the save is turned away without the passphrase
     And nothing is stored
 
-  @pending @driving_port @error @US-001 @contract-shape:unbounded-preservation
+  @driving_port @error @US-001 @contract-shape:unbounded-preservation
   Scenario: Repeated wrong guesses are throttled
     When he tries the wrong passphrase 10 times in a row
     Then further attempts are turned away for a while

@@ -12,6 +12,7 @@ healthz, manifest, scale windowing) lands with its dedicated steps.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
@@ -23,12 +24,24 @@ from fastapi.templating import Jinja2Templates
 from weight_tracker.core.types import Entry, Saved
 from weight_tracker.core.validation import validate_entry_date, validate_weight
 from weight_tracker.ports import ClockPort, EntryStorePort
-from weight_tracker.shell.access_gate import SESSION_COOKIE, SESSION_MAX_AGE_SECONDS, AccessGate
+from weight_tracker.shell.access_gate import (
+    SESSION_COOKIE,
+    SESSION_MAX_AGE_SECONDS,
+    AccessGate,
+    Rejected,
+    Throttled,
+    Unlocked,
+)
 
 ENTRY_SAVED_EVENT = "entry.saved"
 TREND_VIEW_OPENED_EVENT = "trend.view.opened"
 
 _templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+
+def _log_auth_event(name: str) -> None:
+    """Structured auth trail: auth.login.{ok,rejected,rate_limited} (ADR-003)."""
+    print(json.dumps({"event": name}), file=sys.stderr)
 
 
 def build_router(*, store: EntryStorePort, gate: AccessGate, clock: ClockPort) -> APIRouter:
@@ -38,17 +51,25 @@ def build_router(*, store: EntryStorePort, gate: AccessGate, clock: ClockPort) -
     async def login(request: Request) -> JSONResponse:
         form = parse_qs((await request.body()).decode())
         passphrase = form.get("passphrase", [""])[0]
-        if not gate.passphrase_matches(passphrase):
-            return JSONResponse({"detail": "wrong passphrase"}, status_code=401)
-        response = JSONResponse({"status": "unlocked"})
-        response.set_cookie(
-            SESSION_COOKIE,
-            gate.issue_session(issued_at=clock.now_utc()),
-            max_age=SESSION_MAX_AGE_SECONDS,
-            httponly=True,
-            samesite="lax",
-        )
-        return response
+        match gate.attempt_login(passphrase, now=clock.now_utc()):
+            case Throttled():
+                _log_auth_event("auth.login.rate_limited")
+                return JSONResponse({"detail": "too many attempts"}, status_code=429)
+            case Rejected():
+                _log_auth_event("auth.login.rejected")
+                return JSONResponse({"detail": "wrong passphrase"}, status_code=401)
+            case Unlocked(session_token=session_token):
+                _log_auth_event("auth.login.ok")
+                response = JSONResponse({"status": "unlocked"})
+                response.set_cookie(
+                    SESSION_COOKIE,
+                    session_token,
+                    max_age=SESSION_MAX_AGE_SECONDS,
+                    httponly=True,
+                    samesite="lax",
+                )
+                return response
+        raise AssertionError("unreachable: LoginOutcome is a closed choice type")
 
     @router.get("/")
     def entry_screen(request: Request) -> Response:
