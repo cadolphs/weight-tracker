@@ -1,0 +1,164 @@
+# KPI instrumentation contracts — weight-tracker
+# Source KPIs: docs/feature/weight-trend-tracker/feature-delta.md § [REF] Outcome KPIs
+# Storage: same SQLite DB as entries. events table is append-only:
+#   events(id INTEGER PRIMARY KEY, ts TEXT NOT NULL, name TEXT NOT NULL, payload TEXT)  -- payload = JSON
+# Query surface: /stats read-only page (AccessGate-protected); SQL below doubles as the
+# ad-hoc notebook interface (sqlite3 against the live file or a restored replica).
+generated_by: nw-platform-architect
+date: 2026-07-22
+
+events:
+  - name: entry_logged
+    emitted: server-side, on successful record_or_replace (Saved only, never Rejected)
+    fields:
+      date: "ISO date of the entry (device-local calendar day)"
+      entry_ms: "client-measured ms, icon tap -> save confirmation (nullable: absent pre-Slice-05)"
+      kind: "today | backfill | correction"
+  - name: trend_view_opened
+    emitted: server-side, on trend page/series render
+    fields:
+      date: "ISO date (server UTC)"
+  - name: health.startup.refused
+    emitted: structured log only (stdout), NOT an events row — machine may have no working DB
+    fields:
+      probe: "name of the failed driven-adapter probe"
+      reason: "failure detail"
+
+kpis:
+  - id: KPI-1
+    name: entry-timing
+    type: leading
+    target: { median_ms: 5000, p90_ms: 10000, window: rolling 7 days }
+    baseline: "30000-45000 ms (old app, estimated)"
+    instrument: entries.entry_ms (persisted with each save; entry_logged event mirrors it)
+    storage: entries table + events table
+    query: |
+      SELECT COUNT(*) n, AVG(entry_ms) avg_ms FROM entries
+      WHERE date >= date('now','-7 day') AND entry_ms IS NOT NULL;
+      -- median/p90 computed in the /stats handler over the same row set
+    dashboard: /stats "Entry speed" card (7-day median + p90 vs 5s/10s thresholds)
+    alert: none-automated; weekly manual review (single user)
+
+  - id: KPI-2
+    name: logging-adherence
+    type: leading
+    north_star: true
+    target: { days_per_week: 6, consecutive_weeks: 4 }
+    baseline: "5-6/7 self-reported in old app"
+    instrument: none — derived from the entry record itself
+    storage: entries table
+    query: |
+      SELECT strftime('%Y-%W', date) week, COUNT(*) days_logged
+      FROM entries GROUP BY week ORDER BY week DESC LIMIT 8;
+    dashboard: /stats "Adherence" card (last 8 ISO weeks, 6/7 threshold marker)
+    alert: none-automated; weekly manual review
+
+  - id: KPI-3
+    name: trend-view-opens
+    type: leading
+    target: { sessions_per_week: 3 }
+    baseline: 0
+    instrument: trend_view_opened event
+    storage: events table
+    query: |
+      SELECT strftime('%Y-%W', ts) week, COUNT(*) opens
+      FROM events WHERE name = 'trend_view_opened'
+      GROUP BY week ORDER BY week DESC LIMIT 8;
+    dashboard: /stats "Trend engagement" card
+    alert: none-automated; weekly manual review
+
+  - id: KPI-4
+    name: subscription-cancelled
+    type: lagging
+    target: { within_days_of_slice_04: 30 }
+    baseline: subscription active ($30/month)
+    instrument: manual, self-verified
+    storage: none
+    query: n/a
+    dashboard: iteration-close checklist item
+    alert: calendar reminder at Slice-04-ship + 30 days (manual)
+
+guardrails:
+  - id: G-1
+    name: zero-lost-entries
+    rpo_statement: >
+      Litestream streams WAL segments continuously (typical replication delay: seconds).
+      The 15-minute lag alert threshold is the declared RPO bound: at ~1 entry/day, a
+      15-minute worst-case loss window bounds exposure to at most one un-replicated entry,
+      while staying well above UptimeRobot's 5-minute poll interval and normal WAL-segment
+      upload jitter (avoids false-positive alert noise for a solo operator).
+    instrument:
+      healthz: /healthz reports last successful replication timestamp; alert if lag > 15 min
+      restore_drill:
+        cadence: weekly cron (GitHub Actions); every 4th run additionally exercises
+          point-in-time restore (litestream restore -timestamp <now - 7 days>) to a second
+          scratch path + integrity check — proves the PITR data-rollback path, not just
+          latest-generation restore
+        procedure: litestream restore to CI scratch -> PRAGMA integrity_check = ok ->
+          entries count comparison (valid invariant — entries are replace-only, never deleted)
+        state_mechanism:
+          artifact_name: restore-drill-state
+          content: '{run_ts, entries_count, restored_wal_ts} JSON'
+          retention_days: 90   # >> weekly cadence; comparison window never expires
+          compare: download most recent restore-drill-state artifact; assert
+            entries_count_restored >= previous.entries_count; upload new state artifact
+          first_run: no prior artifact found -> skip comparison, record baseline,
+            log drill.baseline.recorded
+    alert:
+      - "UptimeRobot email: /healthz non-200 or replication lag > 15 min (5-min poll)"
+      - "restore drill workflow failure -> GitHub email notification"
+    runbook: docs/product/architecture/runbook-restore.md
+  - id: G-2
+    name: graph-interactive-2s
+    instrument: acceptance test (@property) in CI on every push
+    alert: red main blocks deploy
+  - id: G-3
+    name: trend-determinism
+    instrument: acceptance test (@property, fixed entry set -> identical line) in CI
+    alert: red main blocks deploy
+
+# --- DISTILL tightening (2026-07-22, feature weight-trend-tracker) -----------------
+# Per-KPI acceptance-scenario bindings. Scenario SSOT: tests/weight-trend-tracker/acceptance/*.feature
+at_scenario_links:
+  - kpi: KPI-1
+    at_tag: "@kpi"
+    scenarios:
+      - "A week of timed mornings yields the speed report (milestone-5-five-second-entry.feature)"
+    measurement_window: rolling 7 days
+    gate: soft   # instrumentation emitting + queryable is AT-asserted; the <=5s median itself is real-life data, reviewed weekly
+  - kpi: KPI-2
+    at_tag: null
+    scenarios: []   # derived from the entry record; no dedicated instrumentation to assert (entry persistence covered by US-001 scenarios)
+    measurement_window: last 8 ISO weeks
+    gate: soft
+  - kpi: KPI-3
+    at_tag: "@kpi"
+    scenarios:
+      - "Opening the trend counts toward engagement (milestone-4-trend-through-noise.feature)"
+    measurement_window: per ISO week
+    gate: soft
+  - kpi: KPI-4
+    at_tag: null
+    scenarios: []   # manual, self-verified; not automatable
+    measurement_window: 30 days after Slice 04 ships
+    gate: soft
+  - guardrail: G-1
+    at_tag: "@real-io"
+    scenarios:
+      - "A confirmed save survives a restart (milestone-1-log-todays-weight.feature)"
+      - "A record that cannot be stored safely refuses to open (access-protection.feature)"
+    note: host-loss / replication half covered by the weekly restore drill (CI), outside AT scope
+    gate: hard   # red main blocks deploy
+  - guardrail: G-2
+    at_tag: "@property @kpi"
+    scenarios:
+      - "The history is ready without a wait (milestone-2-review-history.feature)"
+    measurement_window: every push (CI)
+    gate: hard
+  - guardrail: G-3
+    at_tag: "@property @kpi"
+    scenarios:
+      - "The trend is deterministic (milestone-4-trend-through-noise.feature)"
+      - "pure-core PBT: test_a_fixed_entry_set_always_renders_an_identical_line (properties/test_trend_math_properties.py)"
+    measurement_window: every push (CI)
+    gate: hard

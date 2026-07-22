@@ -1,0 +1,53 @@
+[project]
+name = "weight-tracker"
+version = "0.1.0"
+description = "Single-user daily weight tracker with a smoothed, gap-robust trend (weight-trend-tracker feature)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.116",
+    "uvicorn>=0.35",
+    "jinja2>=3.1",
+    "argon2-cffi>=25.1",
+    "itsdangerous>=2.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-bdd>=7.3",
+    "hypothesis>=6",
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/weight_tracker"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# pythonpath (not sys.path hacks in test files) keeps imports clean -- F-003 has no surface.
+pythonpath = [
+    "src",
+    "tests/common",
+    "tests/weight-trend-tracker/acceptance/steps",
+]
+markers = [
+    "walking_skeleton: end-to-end user-value proof through the production composition root",
+    "driving_port: scenario enters through a driving port only",
+    "driving_adapter: scenario exercises the real protocol adapter (HTTP)",
+    "real_io: scenario uses real adapters (SQLite file on tmp_path, real FS)",
+    "adapter_integration: real-I/O coverage for a driven adapter",
+    "in_memory: scenario uses in-memory/fake driven adapters",
+    "error: error-path or edge-case scenario",
+    "property: property-shaped criterion (PBT at layers 1-2; example-pinned at layer 3+)",
+    "kpi: verifies a KPI observability contract from docs/product/kpi-contracts.yaml",
+    "pending: authored by DISTILL, awaiting its DELIVER step (one-scenario-at-a-time)",
+    "us_001: traces to US-001", "us_002: traces to US-002", "us_003: traces to US-003",
+    "us_004: traces to US-004", "us_005: traces to US-005", "us_006: traces to US-006",
+    "contract_shape_pure_function: contract shape tag",
+    "contract_shape_bounded_change: contract shape tag",
+    "contract_shape_unbounded_preservation: contract shape tag",
+]

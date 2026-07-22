@@ -1,0 +1,119 @@
+schema_version: 1
+
+journey:
+  name: "Daily Weight Tracking"
+  goal: "Capture today's weight in seconds and judge real progress via a smoothed trend"
+  persona: clemens # docs/product/personas/clemens.yaml
+  job_id: track-true-weight-trend # docs/product/jobs.yaml
+  platform: "web, mobile-first (phone browser / home-screen launch)"
+
+  emotional_arc:
+    start: "Half-awake routine — zero cognitive load tolerated; entry must be automatic"
+    middle: "Micro-satisfaction — visible 'Saved' confirmation closes the loop instantly"
+    end: "Reassured confidence — trend view resolves raw-weight anxiety into signal"
+    pattern: "Problem Relief within Review step: raw spike (frustration) -> trend view (relief)"
+
+steps:
+  - id: 1
+    name: "Log today's weight"
+    action: "Tap home-screen icon -> entry screen opens, today's date preselected, numeric field focused"
+    screen_sketch: |
+      +--------------------------------------+
+      | Mon 21 Jul 2026            [today]   |
+      |                                      |
+      |   Weight:  [ 82.4      ] kg          |
+      |   (yesterday: 82.6 kg)               |
+      |                                      |
+      |            [  Save  ]                |
+      +--------------------------------------+
+      | Saved: 82.4 kg -- Mon 21 Jul         |
+      +--------------------------------------+
+    shared_artifacts:
+      - name: "weight_entry"
+        source: "entry store (single source of truth for {date, weight_kg})"
+        displayed_as: "confirmation line, history graph point, trend input"
+        consumers: ["step 1 confirmation", "step 2 raw graph", "step 3 trend", "step 4 edit form"]
+      - name: "today_date"
+        source: "device-local calendar date"
+        displayed_as: "preselected date, one-entry-per-day key"
+        consumers: ["step 1 default date", "one-per-day rule"]
+      - name: "unit_label_kg"
+        source: "single UI constant (metric only)"
+        displayed_as: "'kg' suffix"
+        consumers: ["entry field", "confirmation", "graph axes"]
+    emotional_state: { entry: "routine, half-awake", exit: "done — quiet satisfaction" }
+    integration_checkpoint: "Saved entry is immediately visible in history (steps 2-3 read the same store)"
+    failure_modes:
+      - "Typo out of plausible range (824 instead of 82.4)"
+      - "Empty submit"
+      - "Second entry same day (must update, never duplicate)"
+      - "Save fails / offline — entry silently lost would break trust"
+      - "Logging just after midnight attributed to wrong day (device-local day is canonical)"
+    gherkin: |
+      Scenario: Morning weight is captured in seconds
+        Given it is Monday 21 July 2026 at 06:45 and Clemens has not logged today
+        When he opens the tracker, types "82.4" and taps Save
+        Then he sees "Saved: 82.4 kg -- Mon 21 Jul"
+        And today's entry appears in his history
+
+  - id: 2
+    name: "Review raw history"
+    action: "Open graph view; pick time scale (1W / 1M / 3M / 6M / 1Y / All)"
+    emotional_state: { entry: "curious", exit: "informed" }
+    integration_checkpoint: "Graph renders exactly the stored entries — no interpolation, gaps stay gaps"
+    failure_modes:
+      - "Missing days rendered as zeros or fake interpolated points (must be gaps)"
+      - "Graph unreadable on phone viewport"
+    gherkin: |
+      Scenario: History is readable at the chosen time scale
+        Given Clemens has 45 daily entries between March and July 2026
+        When he opens the graph and selects "3M"
+        Then only the last three months of entries are plotted in kg
+        And days without an entry show no data point
+
+  - id: 3
+    name: "Judge the trend"
+    action: "View trend line (default view); toggle Trend <-> Raw"
+    emotional_state: { entry: "possibly anxious after a raw spike", exit: "reassured — noise vs signal resolved" }
+    integration_checkpoint: "Trend and raw views share the same selected time scale and the same entry store"
+    failure_modes:
+      - "Trend jumps or shows discontinuity across missing-day gaps"
+      - "Trend overreacts to a single-day spike (defeats its purpose)"
+      - "Trend lags so much that real change is invisible for weeks"
+    gherkin: |
+      Scenario: A restaurant-night spike is revealed as noise
+        Given Clemens's trend has been stable around 82.3 kg
+        And he logs 83.6 kg the morning after a sushi dinner
+        When he opens the trend view
+        Then the trend moves by no more than 0.3 kg
+        And toggling to Raw shows the 83.6 kg point at the same time scale
+
+  - id: 4
+    name: "Maintain the record"
+    action: "Select a past date; add a missed entry or correct a value"
+    emotional_state: { entry: "mild annoyance (gap/typo noticed)", exit: "trust restored" }
+    integration_checkpoint: "After a past-day change, raw graph and trend recompute over the affected range"
+    failure_modes:
+      - "Future-dated entry accepted"
+      - "Editing a past day creates a duplicate instead of replacing"
+      - "Derived trend not recomputed after correction"
+    gherkin: |
+      Scenario: A forgotten day is backfilled
+        Given Clemens forgot to log Sunday 20 July 2026
+        When he selects 20 July and saves 82.6 kg
+        Then the entry appears dated 20 July
+        And the raw graph and trend include it
+
+integration_validation:
+  shared_artifact_consistency:
+    - artifact: "weight_entry"
+      must_match_across: [1, 2, 3, 4]
+      failure_message: "Entry visible at save must be identical in graph, trend input, and edit form"
+    - artifact: "selected_time_scale"
+      must_match_across: [2, 3]
+      failure_message: "Toggling Trend<->Raw must preserve the chosen time scale"
+
+changelog:
+  - date: "2026-07-21"
+    feature: "weight-trend-tracker"
+    change: "Initial journey created (DISCUSS wave, greenfield bootstrap)"

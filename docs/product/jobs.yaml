@@ -1,0 +1,53 @@
+schema_version: 1
+updated: "2026-07-21"
+jobs:
+  - id: track-true-weight-trend
+    status: validated # problem pre-validated: the user is the sole customer (DISCOVER/DIVERGE skipped)
+    persona: clemens
+    job_statement: >
+      When I step off the scale each morning, I want to capture my weight in
+      seconds and see my true underlying trend over time, so I can judge real
+      progress without being misled by daily fluctuations.
+    job_stories:
+      - id: js-1-capture
+        when: "I step off the scale at 06:45 with half a minute to spare before the day starts"
+        i_want_to: "record today's weight with near-zero friction from my phone"
+        so_i_can: "keep an unbroken daily record without the habit ever feeling like a chore"
+      - id: js-2-judge
+        when: "my raw weight jumps 1.2 kg overnight after a restaurant dinner"
+        i_want_to: "see a smoothed trend line that absorbs water-weight noise"
+        so_i_can: "decide whether to adjust anything based on real movement, not noise"
+      - id: js-3-maintain
+        when: "I notice I forgot to log yesterday or mistyped a value three days ago"
+        i_want_to: "add or correct past days in place"
+        so_i_can: "trust that my record and the trend derived from it are accurate"
+    dimensions:
+      functional:
+        - "Capture one weight value per calendar day, in kg, from a phone, in seconds"
+        - "Visualize raw history and a smoothed trend over selectable time scales"
+        - "Backfill and correct past days; derived views recompute"
+      emotional:
+        - "Reassurance: a bad scale morning is visibly just noise on the trend"
+        - "Confidence that no entry is ever lost"
+        - "Satisfaction of owning a tool that does exactly one thing well"
+      social:
+        - "Minimal (personal tool). Secondary: self-image as a pragmatic builder who
+           replaced a $30/month subscription with a weekend project"
+    forces:
+      push:
+        - "$30/month for a bloated fitness app of which exactly one feature is used"
+        - "Slow, promo-cluttered entry flow (~30-45 s) in the current app"
+      pull:
+        - "Minimal, owned, single-purpose tool; entry in <=5 seconds"
+        - "A trend line sophisticated enough to trust (robust to gaps, smooth, responsive)"
+      anxiety:
+        - "Data loss: what if my self-hosted record disappears?"
+        - "Entry friction: if logging is slower than the old app, the habit breaks"
+        - "Trend quality: a naive moving average would lie across missing days"
+      habit:
+        - "Years of daily logging in the existing app; muscle memory of its flow"
+        - "Historical data lives in the old app (import not committed for v1)"
+    opportunity_scoring: >
+      Skipped per workflow rule: scoring only applies when multiple jobs compete.
+      Exactly one job identified; capture/judge/maintain are moments of the same job.
+    features: [weight-trend-tracker]

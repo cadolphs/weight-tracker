@@ -1,0 +1,99 @@
+# Environment matrix — weight-trend-tracker (DEVOPS wave, DISTILL Mandate 4 artifact)
+# Honest scope: this app does not install into user systems. One serving environment (production);
+# local-dev and ci exist for development and quality gates only.
+feature: weight-trend-tracker
+generated_by: nw-platform-architect
+date: 2026-07-22
+
+target_environments:
+  - id: local-dev
+    platform: macOS
+    role: development
+    runtime:
+      python: "3.12"
+      package_manager: uv
+      test_runner: pytest (unit + property + acceptance)
+      app_process: uvicorn direct (Litestream not required locally)
+    data:
+      store: local SQLite file
+      pragmas_must_match_production: [WAL, synchronous=FULL]
+    secrets:
+      source: .env (git-ignored), dev-only values
+    quality_gates:
+      pre_commit: [ruff, ast-probe-presence-hook]
+      pre_push: [ruff, mypy-strict, import-linter, pytest]
+      mutation_testing: per-feature, scoped to modified files, kill_rate_gate: ">=80%"
+
+  - id: ci
+    platform: GitHub Actions ubuntu-latest
+    role: quality-gates-and-deploy
+    runtime:
+      python: "3.12"
+      package_manager: uv (pinned lock file)
+    data:
+      store: ephemeral SQLite (tmp dir)
+      restore_drill: pulls Litestream replica from R2 to scratch (weekly cron)
+    secrets:
+      github_actions_secrets: [FLY_API_TOKEN, R2_READONLY_CREDENTIALS]
+      note: no application secrets needed for the test stages
+    quality_gates:
+      per_push_to_main: [ruff, mypy-strict, import-linter, pytest-unit, pytest-acceptance]
+      deploy_on: all gates green on main
+      mutation_testing: NOT in CI (runs locally in DELIVER cycle)
+
+  - id: production
+    platform: Fly.io machine
+    role: sole serving environment
+    runtime:
+      machine: shared-cpu-1x, single app, single region
+      container: single Docker container
+      pid1: 'litestream replicate -exec "uvicorn ..." (supervisor pattern)'
+    data:
+      store: SQLite on Fly volume /data (1 GB), WAL + synchronous=FULL
+      replication: Litestream -> Cloudflare R2 (continuous WAL streaming)
+    secrets:
+      fly_secrets: [PASSPHRASE_HASH, SESSION_SIGNING_KEY, R2_CREDENTIALS]
+    deployment:
+      strategy: recreate (brief downtime acceptable, single user)
+      trigger: green main via GitHub Actions
+
+coexistence:
+  - existing: nWave git hooks (workflow tracking)
+    new: project pre-commit/pre-push hooks
+    rule: must_not_break
+    mechanism: chain hooks; never overwrite existing .git/hooks entries
+  - existing: pre-commit hooks (ruff, ast-probe check)
+    new: CI commit-stage gates
+    rule: must_not_break
+    mechanism: local gates mirror CI commit stage (same tools, same configs)
+  - existing: Fly volume /data
+    new: recreate deploys
+    rule: must_not_break
+    mechanism: deploy never detaches or recreates the volume
+
+platform_coverage:
+  serving: [production]  # no staging by design (walking-skeleton, direct-to-production)
+  browsers: mobile-first (Android Chrome PWA install path primary)
+  excluded: [native mobile apps, offline-first operation, multi-region]
+
+deployment_assumptions:
+  - id: DA-1
+    assumption: deploys are idempotent — re-running fly deploy with the same commit is safe
+  - id: DA-2
+    assumption: the /data volume survives every redeploy; entry data is never part of the image
+  - id: DA-3
+    assumption: Fly secrets (PASSPHRASE_HASH, SESSION_SIGNING_KEY, R2 creds) are present
+      before first deploy; startup probes refuse traffic otherwise (health.startup.refused)
+  - id: DA-4
+    assumption: schema changes are additive-only, recorded in a schema_version table, and
+      enforced at runtime — EntryStore startup probe refuses start if DB schema version is
+      newer than the running code knows (rollback-mismatch guard; DEVOPS pre-requisite 2a,
+      implemented by DELIVER in composition/probe)
+  - id: DA-5
+    assumption: deploys are serialized (CI concurrency group); recreate on a single machine
+      must never overlap
+  - id: DA-6
+    assumption: rollback paths exist and are tested — code via previously built image stored
+      in Fly's registry (re-used by ref, never rebuilt); data via litestream restore from R2
+      (weekly latest-generation drill + monthly point-in-time drill); operator procedure in
+      docs/product/architecture/runbook-restore.md

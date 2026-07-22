@@ -1,0 +1,106 @@
+schema_version: "0.1"
+# NOTE (2026-07-22): entries written manually in the CLI's canonical outcome_to_dict shape.
+# `nwave-ai outcomes register` (v3.20 tool install) fails with FileNotFoundError on a
+# mis-packaged schema.json (site-packages/docs/product/outcomes/schema.json) — tool defect,
+# exit 1 (not the exit-2 duplicate contract). Re-run registrations via CLI once fixed upstream.
+outcomes:
+- id: OUT-1
+  kind: operation
+  summary: WeightLogging.record_or_replace — capture or replace one day's weight
+  feature: weight-trend-tracker
+  inputs:
+  - shape: date (device-local ISO day), raw weight string, optional entry_ms
+  output:
+    shape: Saved{date, weight_kg, confirmation} | Rejected{reason from closed set}
+  keywords:
+  - weight-logging
+  - record-or-replace
+  - one-per-day
+  - validation
+  - driving-port
+  artifact: tests/weight-trend-tracker/acceptance/milestone-1-log-todays-weight.feature
+  related: []
+  superseded_by: null
+- id: OUT-2
+  kind: operation
+  summary: WeightHistory.entries_in — raw record within a selected time scale
+  feature: weight-trend-tracker
+  inputs:
+  - shape: time scale (1W|1M|3M|6M|1Y|ALL)
+  output:
+    shape: raw entries newest-first within window; empty-state invite; yesterday reference
+  keywords:
+  - weight-history
+  - entries-in
+  - window
+  - read-only
+  - gaps-stay-gaps
+  artifact: tests/weight-trend-tracker/acceptance/milestone-2-review-history.feature
+  related: []
+  superseded_by: null
+- id: OUT-3
+  kind: operation
+  summary: TrendProjection.trend_series_in — smoothed trend on the daily grid
+  feature: weight-trend-tracker
+  inputs:
+  - shape: time scale (1W|1M|3M|6M|1Y|ALL)
+  output:
+    shape: smoothed TrendPoint series on daily calendar grid (Kalman+RTS, ADR-004), derived never stored
+  keywords:
+  - trend-projection
+  - kalman
+  - rts-smoother
+  - gap-robust
+  - read-only
+  artifact: tests/weight-trend-tracker/acceptance/milestone-4-trend-through-noise.feature
+  related: []
+  superseded_by: null
+- id: OUT-4
+  kind: invariant
+  summary: One entry per device-local calendar day; re-save replaces
+  feature: weight-trend-tracker
+  inputs:
+  - shape: any sequence of record_or_replace calls
+  output:
+    shape: at most one entry per device-local calendar day; re-save replaces, never duplicates
+  keywords:
+  - one-entry-per-day
+  - upsert
+  - replace
+  - invariant
+  artifact: tests/weight-trend-tracker/acceptance/properties/test_validation_properties.py
+  related: []
+  superseded_by: null
+- id: OUT-5
+  kind: invariant
+  summary: Trend determinism — fixed entry set renders an identical line
+  feature: weight-trend-tracker
+  inputs:
+  - shape: any fixed entry set
+  output:
+    shape: identical trend line on every load; line changes only when the entry set changes
+  keywords:
+  - trend-determinism
+  - fixed-parameters
+  - guardrail-g3
+  - invariant
+  artifact: tests/weight-trend-tracker/acceptance/properties/test_trend_math_properties.py
+  related: []
+  superseded_by: null
+- id: OUT-6
+  kind: specification
+  summary: AccessGate — passphrase login, 90-day signed session, throttled guesses
+  feature: weight-trend-tracker
+  inputs:
+  - shape: passphrase POST; session cookie on subsequent requests
+  output:
+    shape: argon2-verified signed HttpOnly cookie (90d, injected-clock expiry); all routes guarded except /login and /healthz; login rate-limited
+  keywords:
+  - access-gate
+  - passphrase
+  - session
+  - rate-limit
+  - adr-003
+  artifact: tests/weight-trend-tracker/acceptance/access-protection.feature
+  related: []
+  superseded_by: null

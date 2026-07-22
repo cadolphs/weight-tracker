@@ -1,0 +1,24 @@
+schema_version: 1
+persona:
+  id: clemens
+  name: "Clemens"
+  archetype: "Owner-operator: sole customer, sole user, sole developer"
+  context:
+    - "Weighs himself every morning (~06:45), immediately after getting up, phone in hand"
+    - "Currently pays $30/month for a full fitness app but uses exactly one feature: daily weight logging"
+    - "Software engineer; comfortable self-hosting a small web app"
+    - "Metric units (kg), 0.1 kg scale precision, typical weight range around 82 kg"
+    - "Phone-first: 95% of interactions happen on a mobile browser, standing in the bathroom"
+  goals:
+    - "Keep an unbroken daily weight record with near-zero friction (speed of entry is the stated top value)"
+    - "Judge real progress via a smoothed trend, not day-to-day noise"
+    - "Cancel the $30/month subscription"
+  frustrations:
+    - "Current app buries weight entry behind dashboards, promos, and multiple taps (~30-45 s per log)"
+    - "Raw daily weight is noisy (water weight, meals) and emotionally misleading"
+    - "Paying for 20 features to use 1"
+  values:
+    - "Single-purpose minimalism: no calories, no workouts, no gamification"
+    - "Ownership of his own data"
+  measurement_note: "Single-user product: all KPIs are self-instrumented or self-reported"
+  features: [weight-trend-tracker]
