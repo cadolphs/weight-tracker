@@ -23,6 +23,16 @@ class TimeScale(Enum):
     ALL = "ALL"
 
 
+def parse_time_scale(raw: str) -> TimeScale | None:
+    """Strict parse of a raw scale token; None when it is not one of the pinned
+    values (1W, 1M, 3M, 6M, 1Y, ALL). Total function over hostile input (C6):
+    the core judges, the shell phrases its own protocol answer (HTTP 400)."""
+    try:
+        return TimeScale(raw)
+    except ValueError:
+        return None
+
+
 class ViewMode(Enum):
     """Graph lens (US-005). Default on open is TREND (A4)."""
 

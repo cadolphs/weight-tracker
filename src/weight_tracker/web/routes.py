@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
@@ -35,6 +35,7 @@ from weight_tracker.core.types import (
     TimeScale,
     TrendPoint,
     entries_in_window,
+    parse_time_scale,
     window_start,
 )
 from weight_tracker.core.validation import validate_entry_date, validate_weight
@@ -67,6 +68,20 @@ REJECTION_MESSAGES: dict[RejectionReason, str] = {
     RejectionReason.FUTURE_DATE: "Future dates cannot be logged.",
     RejectionReason.BAD_DATE: "The date is not recognisable.",
 }
+
+
+def time_scale_or_bad_request(raw_scale: str) -> TimeScale:
+    """Shell translation of an unparseable ?scale= token into HTTP 400 (C6:
+    hostile query input never 500s). Tokens are strict; the 400 message lists
+    the valid scales for correction. The core parses; this shell phrases."""
+    scale = parse_time_scale(raw_scale)
+    if scale is None:
+        valid_scales = ", ".join(known.value for known in TimeScale)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown scale {raw_scale!r}. Valid scales: {valid_scales}.",
+        )
+    return scale
 
 
 def _rejected_save(rejected: Rejected, typed_value: str) -> dict[str, Any]:
@@ -225,8 +240,9 @@ def build_router(
 
     @router.get("/entries")
     def history(scale: str = "ALL") -> dict[str, Any]:
+        selected_scale = time_scale_or_bad_request(scale)
         stored = store.all_entries()  # newest first
-        shown = entries_in_window(stored, TimeScale(scale), today=clock.now_utc().date())
+        shown = entries_in_window(stored, selected_scale, today=clock.now_utc().date())
         return {
             "entries": [
                 {"date": entry.day.isoformat(), "weight_kg": entry.weight_kg} for entry in shown
@@ -240,12 +256,13 @@ def build_router(
 
         Every open is a KPI-3 engagement signal: one trend.view.opened event goes
         onto the append-only trail before the line is returned."""
+        selected_scale = time_scale_or_bad_request(scale)
         opened_at = clock.now_utc()
-        points = trend_series_in(store.all_entries(), TimeScale(scale), opened_at.date())
+        points = trend_series_in(store.all_entries(), selected_scale, opened_at.date())
         store.append_event(
             ts=opened_at.isoformat(),
             name=TREND_VIEW_OPENED_EVENT,
-            payload=json.dumps({"scale": scale}),
+            payload=json.dumps({"scale": selected_scale.value}),
         )
         return {
             "points": [
@@ -261,7 +278,7 @@ def build_router(
         return _templates.TemplateResponse(
             request=request,
             name="graph.html",
-            context={"view": view, "scale": scale},
+            context={"view": view, "scale": time_scale_or_bad_request(scale).value},
         )
 
     @router.get("/static/{asset_name}")
