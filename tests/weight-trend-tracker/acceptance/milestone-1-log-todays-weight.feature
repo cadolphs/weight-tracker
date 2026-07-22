@@ -40,10 +40,18 @@ Feature: Log today's weight in seconds
       | 250.0 |
 
   @driving_port @error @US-001 @contract-shape:unbounded-preservation
-  Scenario: A finer-than-scale value is rejected rather than silently rounded
-    When he logs "81.234" for today
+  Scenario Outline: A finer-than-scale value is rejected rather than silently rounded
+    When he logs "<raw>" for today
     Then the save is rejected because the value is finer than the 0.1 kg scale
     And nothing is stored
+
+    # 82.45 pins the precision BOUNDARY: two decimals is already finer than
+    # scale (found by a surviving mutation of the threshold exponent -1 -> -2,
+    # which only "81.234" could never kill).
+    Examples:
+      | raw    |
+      | 81.234 |
+      | 82.45  |
 
   @driving_port @error @US-001 @contract-shape:unbounded-preservation
   Scenario: Something that is not a weight is rejected safely

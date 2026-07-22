@@ -26,6 +26,12 @@ def step_viewing_trend(composition, ctx, scale):
     ctx.response = composition.graph.open(ViewMode.TREND, ctx.graph_scale)
 
 
+@given(parsers.parse('he opened the trend at "{scale}"'))
+def step_opened_trend(composition, ctx, scale):
+    # Given-flavored twin of "he opens the trend at" (Pillar 2 chaining).
+    composition.trend.open(parse_scale(scale), ctx)
+
+
 @given(parsers.parse('he toggled to the Raw view at "{scale}"'))
 def step_toggled_raw(composition, ctx, scale):
     ctx.graph_scale = parse_scale(scale)

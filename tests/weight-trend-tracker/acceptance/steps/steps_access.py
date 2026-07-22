@@ -27,6 +27,12 @@ def step_days_passed(composition, n):
     composition.clock.days_pass(n)
 
 
+@when(parsers.parse("{n:d} days pass"))
+def step_days_pass_mid_journey(composition, n):
+    # When-flavored twin of "N days have passed", for time elapsing mid-scenario.
+    composition.clock.days_pass(n)
+
+
 # ---------------------------------------------------------------- When
 
 

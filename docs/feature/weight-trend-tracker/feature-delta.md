@@ -733,3 +733,25 @@ From DESIGN: driving ports per brief.md § Component Decomposition (HTTP routes 
 | DESIGN#OpenQ-3 | Gap oracle = smoothed continuity of the CURRENT line | n/a | gap scenarios assert bounded daily step + daily-grid coverage across gaps |
 | DEVOPS#EnvMatrix | Prod pragmas in tests; mutation testing local-only; CI runs full pytest | n/a | acceptance suite runs on ephemeral SQLite matching prod semantics; @pending discipline keeps CI green pre-DELIVER except the intentional WS RED |
 | DEVOPS#MonitoringContracts | KPI-1/KPI-3 instrumentation emitting + queryable; G-2/G-3 as CI-gated ATs | n/a | @kpi scenarios bound in kpi-contracts.yaml § at_scenario_links with window + soft/hard gate class |
+
+## Wave: DELIVER
+
+### [WHY] Upstream Issues
+
+#### AT_GAP-1 (2026-07-22): responsiveness oracle anchored on a retrospectively revised rendered value — adjudicated, fixed at DISTILL
+
+- **Test**: `tests/weight-trend-tracker/acceptance/properties/test_trend_math_properties.py::test_a_sustained_half_kilo_per_week_decline_is_visible_within_7_days` (US-004 responsiveness AC).
+- **Defect**: the final clause `series[last_day] < series[onset_day] - 1.0` was unattainable for ANY correct ADR-004 implementation. It anchored the "1 kg visible" claim on `series[onset_day]` — a smoothed value that RTS retrospectively revises down (~0.45 kg) in the same rendering while the endpoint lags (~0.40 kg). This is exactly the anchoring pattern ADR-004 Consequences + DESIGN OpenQ-3 forbid for oracles ("assert the CURRENT line's shape, never immutability/anchoring of previously rendered values"). DISTILL applied that discipline to the gap oracles but missed it on the responsiveness oracle — an authoring defect, not an implementation defect.
+- **Oracle-verified evidence**: crafter's independent exact batch-MAP solve matched the preserved RTS implementation to 1e-13; max attainable onset-anchored delta = **0.6503 kg** (deterministic, shift-invariant — reproduced by DISTILL at kg = 60.0 / 82.3 / 110.0) vs the **1.0 kg** the assertion required.
+- **Fix chosen** (crafter's option 1 + strengthened within-7-days clause):
+  1. Endpoint compared against the pre-onset **plateau level** (`series[last_day] < plateau_kg - 1.0`) — the plateau is a fixed input, not a revisable rendered value. Verified margin 0.096 kg against the preserved implementation (50 Hypothesis examples pass); a flat/cumulative-mean line (~plateau − 0.6) fails it.
+  2. Within-7-days clause strengthened to test the AC as the user lives it: a second rendering over `stable + decline[:7]` asserts the CURRENT line already points down when only one decline week exists (endpoint < plateau − 0.1, verified margin 0.171 kg); an over-lagging smoother (EMA α = 0.01, endpoint ≈ plateau − 0.03) fails it. The original day-21 shape clause (`series[onset+7] < series[onset] − 0.05`) is retained — it pins current-line shape, which is sound.
+- **ADR-004 unchanged**: constants (R = 0.20, α = 0.10, q = R·α²/(1−α), Huber δ = 1.0, missing-day predict-only) and the smoothed-display decision are untouched. Module `pytest.mark.pending` gating untouched (crafter unskips per one-at-a-time discipline).
+
+#### AT_GAP-2 (2026-07-22): precision boundary pinned — found by mutation survivor at DELIVER step 03-03
+
+Mutating the precision threshold exponent −1 → −2 in core validation survived the suite: the only finer-than-scale example was "81.234" (three decimals), so no AT rejected a TWO-decimal weight. Fix at DISTILL: "A finer-than-scale value is rejected rather than silently rounded" (`milestone-1-log-todays-weight.feature`) converted to a Scenario Outline with examples "81.234" + "82.45" (boundary-pinning), tags and active (un-pended) status unchanged. Verified green against production: `test_milestone_1.py` 14 passed, 2 outline instances `[81.234]` `[82.45]`. No production or validation-constant change.
+
+#### AT_GAP-3 (2026-07-22): KPI rolling-week boundary pinned — found by mutation survivors at DELIVER step 03-05
+
+No scenario pinned the 7-day window of `trend_views_this_week`: a `trend_view_opened` event older than 7 days must NOT count, and two genuine mutants of the cutoff survived. Fix at DISTILL: new active scenario "A viewing from last week no longer counts toward this week" in `milestone-4-trend-through-noise.feature` (@driving_port @kpi @real-io @adapter-integration @US-004 @contract-shape:bounded-change) — opens the trend (view logged today), advances the injected clock 8 days, opens again, asserts trend views this week number 1 (the 8-day-old view excluded; without the cutoff the count would be 2 and the scenario fails; paired with "Opening the trend counts toward engagement" it pins the window from both sides). New step bindings (Mandate-12, one-statement composition delegation): `Given he opened the trend at "{scale}"` (steps_views.py, twin of the When) + `When {n:d} days pass` (steps_access.py, When-flavored twin of "days have passed"). Verified green against production: `test_milestone_4.py` 11 passed (was 10); `test_access_protection.py` 9 passed unaffected. No production change.

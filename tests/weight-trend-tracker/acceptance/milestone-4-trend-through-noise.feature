@@ -78,3 +78,11 @@ Feature: See the true trend through daily noise
     Given his record holds an entry for every day from 1 July 2026 to 21 July 2026
     When he opens the trend at "1M"
     Then his trend views this week number 1
+
+  @driving_port @kpi @real-io @adapter-integration @US-004 @contract-shape:bounded-change
+  Scenario: A viewing from last week no longer counts toward this week
+    Given his record holds an entry for every day from 1 July 2026 to 21 July 2026
+    And he opened the trend at "1M"
+    When 8 days pass
+    And he opens the trend at "1M"
+    Then his trend views this week number 1
