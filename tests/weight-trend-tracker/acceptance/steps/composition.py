@@ -515,6 +515,12 @@ class StatsService(_Service):
             f"p90 must sit between median and worst case, got {speed}"
         )
 
+    def assert_speed_report_empty(self, ctx: SimpleNamespace) -> None:
+        speed = ctx.response.json()["speed"]
+        assert speed == {"median_ms": None, "p90_ms": None, "sample_count": 0}, (
+            f"an untimed record must make no speed claims (honest nulls), got {speed}"
+        )
+
     def assert_trend_views_this_week(self, n: int) -> None:
         body = self.comp.observer().get("/stats").json()
         assert body["trend_views_this_week"] == n, (

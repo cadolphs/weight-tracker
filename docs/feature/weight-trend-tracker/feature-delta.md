@@ -755,3 +755,33 @@ Mutating the precision threshold exponent −1 → −2 in core validation survi
 #### AT_GAP-3 (2026-07-22): KPI rolling-week boundary pinned — found by mutation survivors at DELIVER step 03-05
 
 No scenario pinned the 7-day window of `trend_views_this_week`: a `trend_view_opened` event older than 7 days must NOT count, and two genuine mutants of the cutoff survived. Fix at DISTILL: new active scenario "A viewing from last week no longer counts toward this week" in `milestone-4-trend-through-noise.feature` (@driving_port @kpi @real-io @adapter-integration @US-004 @contract-shape:bounded-change) — opens the trend (view logged today), advances the injected clock 8 days, opens again, asserts trend views this week number 1 (the 8-day-old view excluded; without the cutoff the count would be 2 and the scenario fails; paired with "Opening the trend counts toward engagement" it pins the window from both sides). New step bindings (Mandate-12, one-statement composition delegation): `Given he opened the trend at "{scale}"` (steps_views.py, twin of the When) + `When {n:d} days pass` (steps_access.py, When-flavored twin of "days have passed"). Verified green against production: `test_milestone_4.py` 11 passed (was 10); `test_access_protection.py` 9 passed unaffected. No production change.
+
+#### AT_GAP-4 (2026-07-22): milestone-5 oracle gaps closed — found by mutation survivors at DELIVER step 03-06
+
+Two cheap oracle gaps in `milestone-5-five-second-entry.feature`, both pinned with new active scenarios (green against production, no production change):
+
+1. **Yesterday-anchor with neighbours** — "Yesterday still anchors today in a well-kept record": three consecutive days hold DISTINCT values (19 Jul 83.4, yesterday 82.6, today 81.9 already logged), asserting the reference shows specifically yesterday's 82.6. Kills `weight_on` max-date mutants (would show today's 81.9) and off-by-one-older mutants (would show 83.4). Existing Given vocabulary reused — zero new bindings.
+2. **Empty speed report** — "An untimed record makes no speed claims": empty record → `Then the speed report honestly shows no timed mornings yet`, pinning the honest-nulls contract shape `speed{median_ms: null, p90_ms: null, sample_count: 0}` exactly. New Then binding (steps_views.py) delegates to new `StatsService.assert_speed_report_empty` (composition.py, Mandate-12 single-delegation).
+
+Accepted residuals (deliberately NOT oracled, per mutation report):
+- `_p90` sandwich looseness (median ≤ p90 ≤ worst-case, not an exact percentile pin) is contract-intentional — the KPI contract promises an honest worst-case band, not a specific interpolation method.
+- `sw.js` service-worker behavior remains a browser-only smoke concern — app-shell caching is unobservable from the HTTP test host; serving the file is already covered.
+
+Verified: `test_milestone_5.py` 7 passed (was 5); full acceptance suite 75 passed.
+
+## Wave: DELIVER / [REF] Demo Evidence
+
+Post-merge integration gate (Phase 3.5), 2026-07-22. Real server: `uvicorn weight_tracker.main:app` with production env contract (`PASSPHRASE_HASH`, `SESSION_SIGNING_KEY`, `DB_PATH`), fresh SQLite, real HTTP via curl. All exit codes 0 / HTTP 200 unless stated.
+
+| Story | Demo command | Saw |
+|---|---|---|
+| US-001 | `POST /login` (passphrase) → `POST /entries {"date":"2026-07-22","weight":"82.4","entry_ms":4200}` | `{"status":"unlocked"}` → `"Saved: 82.4 kg — Wed 22 Jul"`; entry at top of `GET /entries?scale=ALL` |
+| US-002 | `GET /entries?scale=3M` / `?scale=ALL` | exactly the stored entries, no interpolation; `GET /graph` 200 |
+| US-003 | `POST /entries {"date":"2026-07-20","weight":"82.6"}`; then `{"date":"2026-07-30",...}` | backfill `"Saved: 82.6 kg — Mon 20 Jul"`; future rejected `"Future dates cannot be logged."`, nothing stored |
+| US-004 | `GET /trend?scale=1M` | smooth deterministic `trend_kg` series over the daily grid (82.50 → 82.50 → 82.50) |
+| US-005 | `GET /graph` → `GET /graph?view=raw&scale=3M` | default `data-view="trend"`; raw toggle preserves `data-scale="3M"` |
+| US-006 | `GET /` · `GET /manifest.webmanifest` · `GET /stats` | `autofocus` + `inputmode="decimal"`; installable manifest; `speed{median_ms:4200, p90_ms:4200, sample_count:1}` — entry_ms KPI-1 instrumentation emitting |
+
+Environment matrix outcome: `local-dev` PASS (75 tests + ruff/format/mypy-strict/import-linter green); `ci` mirrored locally with identical tools PASS (workflows land with this wave — first CI run occurs on push); `production` NOT EXERCISED from this machine — Fly app/volume/secrets are documented operator prerequisites (step 01-04 report; DA-3); startup is self-gating (`health.startup.refused`) and the deploy pipeline's smoke stage covers first contact.
+
+Demo finding (minor, logged): `GET /entries?scale=All` (wrong casing, hand-typed URL only — UI buttons send `ALL`) returns 500 instead of a 4xx; unhandled `ValueError` in `TimeScale(scale)`. Routed to adversarial review for severity judgment.

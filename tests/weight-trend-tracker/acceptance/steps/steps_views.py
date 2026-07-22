@@ -182,3 +182,8 @@ def step_installable(composition, ctx):
 @then("the speed report shows the week's median and worst-case entry times")
 def step_speed_report(composition, ctx):
     composition.stats.assert_speed_report(ctx, ctx.timings)
+
+
+@then("the speed report honestly shows no timed mornings yet")
+def step_speed_report_empty(composition, ctx):
+    composition.stats.assert_speed_report_empty(ctx)

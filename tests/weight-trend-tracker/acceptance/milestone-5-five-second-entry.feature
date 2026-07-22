@@ -21,6 +21,17 @@ Feature: From pocket to logged in five seconds
     When he opens the entry screen
     Then yesterday's 82.6 kg is shown beside the input
 
+  @driving_port @US-006 @contract-shape:pure-function
+  Scenario: Yesterday still anchors today in a well-kept record
+    # All three neighbouring days hold DISTINCT values so the anchor is pinned
+    # to yesterday specifically: a latest-entry slip would show today's 81.9,
+    # an off-by-one-older slip would show 83.4 (mutation survivors, step 03-06).
+    Given he logged 83.4 kg on 19 July 2026
+    And yesterday he logged 82.6 kg
+    And he has already logged 81.9 kg for today
+    When he opens the entry screen
+    Then yesterday's 82.6 kg is shown beside the input
+
   @driving_port @error @US-006 @contract-shape:pure-function
   Scenario: The first morning has no yesterday to lean on
     When he opens the entry screen
@@ -36,3 +47,8 @@ Feature: From pocket to logged in five seconds
     Given he has logged timed entries every morning for the last week
     When he opens the speed report
     Then the speed report shows the week's median and worst-case entry times
+
+  @driving_port @error @kpi @US-006 @contract-shape:pure-function
+  Scenario: An untimed record makes no speed claims
+    When he opens the speed report
+    Then the speed report honestly shows no timed mornings yet
