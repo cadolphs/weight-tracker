@@ -1,4 +1,4 @@
-"""Production composition root -- RED scaffold (created by DISTILL).
+"""Production composition root.
 
 Wire -> probe all driven adapters -> serve (brief.md). Any probe failure means the
 app refuses to serve (`health.startup.refused`) rather than risk losing entries.
@@ -9,12 +9,17 @@ same wiring as production, with only the external/non-deterministic Clock inject
 
 from __future__ import annotations
 
+import json
+import sys
 from pathlib import Path
 from typing import Any
 
-from weight_tracker.ports import ClockPort
+from fastapi import FastAPI
 
-__SCAFFOLD__ = True
+from weight_tracker.ports import ClockPort
+from weight_tracker.shell.access_gate import AccessGate, install_access_gate
+from weight_tracker.shell.entry_store import SqliteEntryStore
+from weight_tracker.web.routes import build_router
 
 
 def build_app(
@@ -42,7 +47,39 @@ def build_app(
         GET  /healthz                    unauthenticated health/replication status
         GET  /manifest.webmanifest       PWA install manifest
     """
-    raise AssertionError("Not yet implemented -- RED scaffold")
+    store = SqliteEntryStore(db_path)
+    gate = AccessGate(passphrase_hash=passphrase_hash, session_signing_key=session_signing_key)
+    _probe_all_or_refuse({"entry_store": store, "access_gate": gate, "clock": clock})
+    app = FastAPI()
+    install_access_gate(app, gate)
+    app.include_router(build_router(store=store, gate=gate, clock=clock))
+    return app
+
+
+def _probe_all_or_refuse(adapters: dict[str, Any]) -> None:
+    """Run every adapter's startup probe; any failure refuses start (Earned Trust).
+
+    Injected test fakes (e.g. FakeClock) carry no probe and are the injector's
+    responsibility; every production driven adapter implements `probe()`.
+    """
+    for adapter_name, adapter in adapters.items():
+        probe = getattr(adapter, "probe", None)
+        if probe is None:
+            continue
+        try:
+            probe()
+        except Exception as failure:
+            _log_startup_refused(adapter_name, failure)
+            raise StartupRefused(f"{adapter_name} probe failed: {failure}") from failure
+
+
+def _log_startup_refused(adapter_name: str, failure: Exception) -> None:
+    print(
+        json.dumps(
+            {"event": "health.startup.refused", "adapter": adapter_name, "error": str(failure)}
+        ),
+        file=sys.stderr,
+    )
 
 
 class StartupRefused(Exception):

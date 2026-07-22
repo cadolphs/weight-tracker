@@ -71,6 +71,11 @@ class Saved:
     day: date
     weight_kg: float
 
+    @property
+    def confirmation(self) -> str:
+        """Human confirmation shown after a save, e.g. 'Saved: 82.4 kg — Tue 21 Jul'."""
+        return f"Saved: {self.weight_kg:.1f} kg — {self.day:%a} {self.day.day} {self.day:%b}"
+
 
 @dataclass(frozen=True)
 class Rejected:
