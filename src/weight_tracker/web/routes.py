@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import sys
 from collections.abc import Callable, Sequence
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
@@ -27,7 +27,6 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from weight_tracker.core.types import (
-    SCALE_WINDOW_DAYS,
     Entry,
     Rejected,
     RejectionReason,
@@ -35,6 +34,7 @@ from weight_tracker.core.types import (
     TimeScale,
     TrendPoint,
     entries_in_window,
+    window_start,
 )
 from weight_tracker.core.validation import validate_entry_date, validate_weight
 from weight_tracker.ports import ClockPort, EntryStorePort
@@ -83,9 +83,11 @@ _static_dir = Path(__file__).parent / "static"
 
 
 def _kpi_week_start(today: date) -> date:
-    """Rolling KPI week (/stats `trend_views_this_week`): the last 7 days inclusive
-    of today -- the same window the 1W scale shows (pure calendar arithmetic)."""
-    return today - timedelta(days=SCALE_WINDOW_DAYS[TimeScale.ONE_WEEK] - 1)
+    """Rolling KPI week (/stats `trend_views_this_week`): exactly the 1W scale
+    window -- the core's single pinned "last N days inclusive of today" rule
+    applied to the event trail (no second copy of the calendar arithmetic)."""
+    week_start = window_start(TimeScale.ONE_WEEK, today)
+    return week_start if week_start is not None else today  # None is ALL-only, 1W is bounded
 
 
 def _log_auth_event(name: str) -> None:
