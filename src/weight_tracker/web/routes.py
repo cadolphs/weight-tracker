@@ -5,8 +5,9 @@ spec). Dependencies arrive as function parameters (functional DI): the router is
 built over the entry store port, the access gate, and the clock port.
 
 Current scope: login, save-entry (confirmed and rejected paths, inline
-messaging), history read-back, telemetry counts, entry-screen page shell.
-Remaining surface (trend, graph, manifest, scale windowing) lands with its
+messaging), history read-back, trend read-back (smoothed line, windowed
+output), graph page, telemetry counts, entry-screen page shell.
+Remaining surface (manifest, trend-view telemetry) lands with its
 dedicated steps.
 """
 
@@ -14,7 +15,8 @@ from __future__ import annotations
 
 import json
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from datetime import date
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
@@ -29,6 +31,7 @@ from weight_tracker.core.types import (
     RejectionReason,
     Saved,
     TimeScale,
+    TrendPoint,
     entries_in_window,
 )
 from weight_tracker.core.validation import validate_entry_date, validate_weight
@@ -46,6 +49,10 @@ from weight_tracker.shell.access_gate import (
 
 ENTRY_SAVED_EVENT = "entry.saved"
 TREND_VIEW_OPENED_EVENT = "trend.view.opened"
+
+#: TrendProjection driving port: read-only, derived-never-stored (ADR-004) -- a pure
+#: function of the FULL entry set, windowed on the output. Wired at the composition root.
+TrendProjection = Callable[[Sequence[Entry], TimeScale, date], list[TrendPoint]]
 
 #: Shell translation of the core's closed RejectionReason set into inline messages (C6b/C6c).
 #: The core judges; the shell phrases. No validation logic lives here.
@@ -83,6 +90,7 @@ def build_router(
     store: EntryStorePort,
     gate: AccessGate,
     clock: ClockPort,
+    trend_series_in: TrendProjection,
     replication_status: Callable[[], str],
 ) -> APIRouter:
     router = APIRouter()
@@ -152,6 +160,16 @@ def build_router(
                 {"date": entry.day.isoformat(), "weight_kg": entry.weight_kg} for entry in shown
             ],
             "invite_first_log": not stored,
+        }
+
+    @router.get("/trend")
+    def trend(scale: str = "ALL") -> dict[str, Any]:
+        """Smoothed trend line for the selected scale (full recompute per read, ADR-004)."""
+        points = trend_series_in(store.all_entries(), TimeScale(scale), clock.now_utc().date())
+        return {
+            "points": [
+                {"date": point.day.isoformat(), "trend_kg": point.trend_kg} for point in points
+            ]
         }
 
     @router.get("/graph")

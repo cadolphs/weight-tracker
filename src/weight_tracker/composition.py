@@ -16,6 +16,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from weight_tracker.core.trend import trend_series_in
 from weight_tracker.ports import ClockPort
 from weight_tracker.shell.access_gate import AccessGate, install_access_gate
 from weight_tracker.shell.entry_store import SqliteEntryStore, replication_status
@@ -57,6 +58,7 @@ def build_app(
             store=store,
             gate=gate,
             clock=clock,
+            trend_series_in=trend_series_in,
             replication_status=lambda: replication_status(db_path),
         )
     )

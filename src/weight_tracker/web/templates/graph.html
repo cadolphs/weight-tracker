@@ -29,9 +29,11 @@
   </main>
   <script src="/static/uplot.iife.min.js"></script>
   <script>
-    // Shell rendering only: the server windows entries (pure core) and returns
-    // exactly the stored ones. Missing days become nulls on the daily grid, so
-    // uPlot draws honest gaps — no zeros, no interpolation (spanGaps: false).
+    // Shell rendering only. Raw lens: the server windows entries (pure core) and
+    // returns exactly the stored ones; missing days become nulls on the daily grid,
+    // so uPlot draws honest gaps — no zeros, no interpolation (spanGaps: false).
+    // Trend lens: the server smooths over the FULL record and windows the OUTPUT
+    // (ADR-004); the line covers every day on the grid, so no gaps exist to draw.
     const DAY_MS = 86400000;
     const page = document.getElementById("graph-page");
     const chartHost = document.getElementById("chart");
@@ -51,47 +53,67 @@
       return [xs, ys];
     }
 
-    function renderRawGraph(entries) {
+    function trendGridSeries(points) {
+      return [
+        points.map((p) => Date.parse(p.date + "T00:00:00Z") / 1000),
+        points.map((p) => p.trend_kg),
+      ];
+    }
+
+    function renderChart(data, lineOptions) {
       if (chart !== null) chart.destroy();
       chart = new uPlot(
         {
           width: Math.min(document.body.clientWidth - 32, 800),
           height: 320,
-          series: [
-            {},
-            {
-              label: "kg",
-              stroke: "#1f6feb",
-              spanGaps: false,
-              points: { show: true },
-            },
-          ],
+          series: [{}, lineOptions],
           axes: [{}, { label: "kg" }],
         },
-        dailyGridSeries(entries),
+        data,
         chartHost,
       );
     }
 
-    async function showHistory(scale) {
+    function clearChart() {
+      if (chart !== null) { chart.destroy(); chart = null; }
+    }
+
+    async function showRaw(scale) {
+      const history = await (await fetch(`/entries?scale=${encodeURIComponent(scale)}`)).json();
+      emptyInvite.hidden = !history.invite_first_log;
+      if (history.entries.length === 0) return clearChart();
+      renderChart(dailyGridSeries(history.entries), {
+        label: "kg",
+        stroke: "#1f6feb",
+        spanGaps: false,
+        points: { show: true },
+      });
+    }
+
+    async function showTrend(scale) {
+      const trend = await (await fetch(`/trend?scale=${encodeURIComponent(scale)}`)).json();
+      emptyInvite.hidden = trend.points.length > 0;
+      if (trend.points.length === 0) return clearChart();
+      renderChart(trendGridSeries(trend.points), {
+        label: "trend kg",
+        stroke: "#d29922",
+        width: 2,
+      });
+    }
+
+    async function showGraph(scale) {
       page.dataset.scale = scale;
       for (const button of document.querySelectorAll("#scale-picker button")) {
         button.setAttribute("aria-pressed", String(button.dataset.scale === scale));
       }
-      const response = await fetch(`/entries?scale=${encodeURIComponent(scale)}`);
-      const history = await response.json();
-      emptyInvite.hidden = !history.invite_first_log;
-      if (history.entries.length === 0) {
-        if (chart !== null) { chart.destroy(); chart = null; }
-        return;
-      }
-      renderRawGraph(history.entries);
+      if (page.dataset.view === "trend") await showTrend(scale);
+      else await showRaw(scale);
     }
 
     for (const button of document.querySelectorAll("#scale-picker button")) {
-      button.addEventListener("click", () => showHistory(button.dataset.scale));
+      button.addEventListener("click", () => showGraph(button.dataset.scale));
     }
-    showHistory(page.dataset.scale);
+    showGraph(page.dataset.scale);
   </script>
 </body>
 </html>

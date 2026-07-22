@@ -39,7 +39,9 @@ weights = st.integers(min_value=400, max_value=1500).map(lambda i: i / 10)  # 40
 
 
 def entries_on(offsets: list[int], kgs: list[float]) -> list[Entry]:
-    return [Entry(day=START + timedelta(days=o), weight_kg=w) for o, w in zip(offsets, kgs)]
+    return [
+        Entry(day=START + timedelta(days=o), weight_kg=w) for o, w in zip(offsets, kgs, strict=True)
+    ]
 
 
 @st.composite
@@ -113,7 +115,7 @@ def test_the_current_line_crosses_a_gap_with_bounded_daily_steps(kg, gap_days, s
     before_gap = steady(kg, side_days)
     after_gap = steady(kg, side_days, first_offset=side_days + gap_days)
     points = trend_series(before_gap + after_gap)
-    steps = [abs(b.trend_kg - a.trend_kg) for a, b in zip(points, points[1:])]
+    steps = [abs(b.trend_kg - a.trend_kg) for a, b in zip(points, points[1:], strict=False)]
     assert max(steps) <= STEP_LIMIT_KG
     assert all(abs(p.trend_kg - kg) <= SPIKE_LIMIT_KG for p in points)
 

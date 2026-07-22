@@ -6,17 +6,17 @@ runtime; changes only via a superseding ADR.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Sequence
 
-from weight_tracker.core.types import Entry, TrendPoint
+from weight_tracker.core.types import Entry, TimeScale, TrendPoint, window_start
 
 # ADR-004 fixed parameters (determinism contract)
-R_KG2 = 0.20                                   # observation noise variance (sigma_eps ~ 0.45 kg)
-ALPHA = 0.10                                   # steady-state forward gain (Hacker's Diet alpha)
-Q_KG2 = R_KG2 * ALPHA**2 / (1.0 - ALPHA)       # ~0.002222 kg^2 process noise variance
-HUBER_DELTA_KG = 1.0                           # innovation clip
+R_KG2 = 0.20  # observation noise variance (sigma_eps ~ 0.45 kg)
+ALPHA = 0.10  # steady-state forward gain (Hacker's Diet alpha)
+Q_KG2 = R_KG2 * ALPHA**2 / (1.0 - ALPHA)  # ~0.002222 kg^2 process noise variance
+HUBER_DELTA_KG = 1.0  # innovation clip
 
 
 @dataclass(frozen=True)
@@ -42,9 +42,24 @@ def trend_series(entries: Sequence[Entry]) -> list[TrendPoint]:
         return []
     weight_by_day = {entry.day: entry.weight_kg for entry in entries}
     grid = _daily_grid(min(weight_by_day), max(weight_by_day))
-    observations = [weight_by_day.get(day) for day in grid]
-    smoothed_means = _rts_backward(_kalman_forward(observations))
-    return [TrendPoint(day=day, trend_kg=kg) for day, kg in zip(grid, smoothed_means)]
+    later_observations = [weight_by_day.get(day) for day in grid[1:]]
+    smoothed_means = _rts_backward(_kalman_forward(weight_by_day[grid[0]], later_observations))
+    return [TrendPoint(day=day, trend_kg=kg) for day, kg in zip(grid, smoothed_means, strict=True)]
+
+
+def trend_series_in(entries: Sequence[Entry], scale: TimeScale, today: date) -> list[TrendPoint]:
+    """Smoothed trend for the selected scale: full-record smoothing, windowed OUTPUT.
+
+    Derived, never stored (ADR-004): the trend is recomputed from the FULL entry
+    set on every read, then the resulting points are windowed to the scale.
+    Windowing the input entries instead would change smoothing near the window
+    edge. ALL is unbounded; bounded scales keep [window_start, today].
+    """
+    first_shown_day = window_start(scale, today)
+    full_series = trend_series(entries)
+    if first_shown_day is None:
+        return full_series
+    return [point for point in full_series if first_shown_day <= point.day <= today]
 
 
 def _daily_grid(first_day: date, last_day: date) -> list[date]:
@@ -55,17 +70,19 @@ def _huber_clip(innovation_kg: float) -> float:
     return max(-HUBER_DELTA_KG, min(HUBER_DELTA_KG, innovation_kg))
 
 
-def _kalman_forward(observations: Sequence[float | None]) -> _ForwardPass:
-    """Forward filter over the daily grid; the first grid day always has an observation.
+def _kalman_forward(
+    first_weight_kg: float, later_observations: Sequence[float | None]
+) -> _ForwardPass:
+    """Forward filter over the daily grid; the first grid day always has an observation
+    (grid starts at the first entry day), so it arrives as a plain float by construction.
 
     Diffuse-prior initialisation: the first observation is taken as the state,
     with the diffuse-limit filtered variance R (day-0 predicted slots are
     placeholders, never read by the backward pass).
     """
-    first_weight = observations[0]
-    filtered_means, filtered_variances = [first_weight], [R_KG2]
-    predicted_means, predicted_variances = [first_weight], [R_KG2]
-    for observed_kg in observations[1:]:
+    filtered_means, filtered_variances = [first_weight_kg], [R_KG2]
+    predicted_means, predicted_variances = [first_weight_kg], [R_KG2]
+    for observed_kg in later_observations:
         prior_mean = filtered_means[-1]
         prior_variance = filtered_variances[-1] + Q_KG2
         predicted_means.append(prior_mean)

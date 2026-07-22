@@ -66,25 +66,12 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
 
-[tool.ruff.lint.per-file-ignores]
-# TEMPORARY (step 01-04): trend core + its property suite are owned by a concurrently
-# running DELIVER step; lint cleanup (UP035, B905, formatting) deferred to that owner.
-# Remove these carve-outs once step 01-03/trend work is fully landed.
-"src/weight_tracker/core/trend.py" = ["UP035", "B905"]
-"tests/weight-trend-tracker/acceptance/properties/test_trend_math_properties.py" = ["B905"]
-
 [tool.mypy]
 # DEVOPS outline says `mypy --strict`; scoped to src/ (production code). Test code
 # (pytest-bdd decorator stacks, Hypothesis strategies) is exercised by pytest itself
 # and is deliberately outside the strict surface — documented deviation.
 files = ["src"]
 strict = true
-
-[[tool.mypy.overrides]]
-# TEMPORARY (step 01-04): trend core is owned by a concurrently running DELIVER step;
-# its Optional-narrowing cleanup belongs to that owner. Remove once trend work lands.
-module = "weight_tracker.core.trend"
-disable_error_code = ["arg-type"]
 
 [tool.importlinter]
 root_package = "weight_tracker"
@@ -100,7 +87,3 @@ forbidden_modules = [
     "weight_tracker.main",
     "weight_tracker.ports",
 ]
-
-[tool.ruff.format]
-# TEMPORARY (step 01-04): same concurrent-ownership carve-out as per-file-ignores above.
-exclude = ["src/weight_tracker/core/trend.py"]
