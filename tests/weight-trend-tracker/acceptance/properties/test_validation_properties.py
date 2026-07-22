@@ -23,7 +23,7 @@ from weight_tracker.core.types import (
 )
 from weight_tracker.core.validation import apply_entry, validate_entry_date, validate_weight
 
-pytestmark = [pytest.mark.pending, pytest.mark.property, pytest.mark.us_001, pytest.mark.us_003]
+pytestmark = [pytest.mark.property, pytest.mark.us_001, pytest.mark.us_003]
 
 tenths_in_range = st.integers(300, 2500).map(lambda i: i / 10)  # 30.0..250.0 at 0.1
 days = st.dates(min_value=date(2020, 1, 1), max_value=date(2030, 12, 31))
