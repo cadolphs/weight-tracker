@@ -86,13 +86,6 @@ strict = true
 module = "weight_tracker.core.trend"
 disable_error_code = ["arg-type"]
 
-[[tool.mypy.overrides]]
-# Walking-skeleton scope (routes.py docstring): the Rejected branch of validate_weight /
-# validate_entry_date is deliberately unhandled until the milestone-1 error scenarios
-# (currently @pending) drive it. Narrowing lands with that step; remove this override then.
-module = "weight_tracker.web.routes"
-disable_error_code = ["arg-type", "union-attr"]
-
 [tool.importlinter]
 root_package = "weight_tracker"
 

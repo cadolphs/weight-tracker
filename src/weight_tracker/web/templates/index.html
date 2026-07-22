@@ -12,7 +12,41 @@
       <label for="weight">Weight (kg)</label>
       <input id="weight" name="weight" inputmode="decimal" autocomplete="off" autofocus>
       <button type="submit">Save</button>
+      <p id="save-feedback" role="alert" hidden></p>
     </form>
   </main>
+  <script>
+    // Device-local day (A5): the phone's calendar day, not UTC.
+    function deviceLocalDay() {
+      const now = new Date();
+      const pad = (part) => String(part).padStart(2, "0");
+      return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    }
+
+    // Inline save flow: confirmation or corrective message beside the field.
+    // On rejection the typed value stays in the input for correction.
+    const entryForm = document.querySelector("form");
+    const weightInput = document.getElementById("weight");
+    const feedback = document.getElementById("save-feedback");
+
+    entryForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const response = await fetch("/entries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: deviceLocalDay(), weight: weightInput.value }),
+      });
+      const outcome = await response.json();
+      feedback.hidden = false;
+      if (outcome.outcome === "saved") {
+        feedback.textContent = outcome.confirmation;
+        weightInput.value = "";
+      } else {
+        feedback.textContent = outcome.message;
+        weightInput.value = outcome.echo;
+      }
+      weightInput.focus();
+    });
+  </script>
 </body>
 </html>

@@ -4,9 +4,10 @@ Route contract = `build_app` docstring in weight_tracker.composition (executable
 spec). Dependencies arrive as function parameters (functional DI): the router is
 built over the entry store port, the access gate, and the clock port.
 
-Walking-skeleton scope: login, save-entry happy path, history read-back,
-telemetry counts, entry-screen page shell. Remaining surface (trend, graph,
-healthz, manifest, scale windowing) lands with its dedicated steps.
+Current scope: login, save-entry (confirmed and rejected paths, inline
+messaging), history read-back, telemetry counts, entry-screen page shell.
+Remaining surface (trend, graph, manifest, scale windowing) lands with its
+dedicated steps.
 """
 
 from __future__ import annotations
@@ -22,20 +23,44 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 
-from weight_tracker.core.types import Entry, Saved
+from weight_tracker.core.types import Entry, Rejected, RejectionReason, Saved
 from weight_tracker.core.validation import validate_entry_date, validate_weight
 from weight_tracker.ports import ClockPort, EntryStorePort
 from weight_tracker.shell.access_gate import (
     SESSION_COOKIE,
     SESSION_MAX_AGE_SECONDS,
     AccessGate,
-    Rejected,
     Throttled,
     Unlocked,
+)
+from weight_tracker.shell.access_gate import (
+    Rejected as PassphraseRejected,
 )
 
 ENTRY_SAVED_EVENT = "entry.saved"
 TREND_VIEW_OPENED_EVENT = "trend.view.opened"
+
+#: Shell translation of the core's closed RejectionReason set into inline messages (C6b/C6c).
+#: The core judges; the shell phrases. No validation logic lives here.
+REJECTION_MESSAGES: dict[RejectionReason, str] = {
+    RejectionReason.OUT_OF_RANGE: "The value must be between 30.0 and 250.0 kg.",
+    RejectionReason.BAD_PRECISION: "The value is finer than the 0.1 kg scale.",
+    RejectionReason.NOT_A_WEIGHT: "That is not a weight.",
+    RejectionReason.MISSING_VALUE: "A weight is required.",
+    RejectionReason.FUTURE_DATE: "Future dates cannot be logged.",
+    RejectionReason.BAD_DATE: "The date is not recognisable.",
+}
+
+
+def _rejected_save(rejected: Rejected, typed_value: str) -> dict[str, Any]:
+    """Rejected-save response: closed reason, inline message, typed value kept for correction."""
+    return {
+        "outcome": "rejected",
+        "reason": rejected.reason.value,
+        "message": REJECTION_MESSAGES[rejected.reason],
+        "echo": typed_value,
+    }
+
 
 _templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
@@ -62,7 +87,7 @@ def build_router(
             case Throttled():
                 _log_auth_event("auth.login.rate_limited")
                 return JSONResponse({"detail": "too many attempts"}, status_code=429)
-            case Rejected():
+            case PassphraseRejected():
                 _log_auth_event("auth.login.rejected")
                 return JSONResponse({"detail": "wrong passphrase"}, status_code=401)
             case Unlocked(session_token=session_token):
@@ -85,10 +110,15 @@ def build_router(
     @router.post("/entries")
     async def save_entry(request: Request) -> dict[str, Any]:
         submitted = await request.json()
-        weight_kg = validate_weight(str(submitted.get("weight", "")))
+        typed_weight = str(submitted.get("weight", ""))
+        weight_kg = validate_weight(typed_weight)
+        if isinstance(weight_kg, Rejected):
+            return _rejected_save(weight_kg, typed_value=typed_weight)
         day = validate_entry_date(
             str(submitted.get("date", "")), server_utc_today=clock.now_utc().date()
         )
+        if isinstance(day, Rejected):
+            return _rejected_save(day, typed_value=typed_weight)
         logged_at = clock.now_utc().isoformat()
         entry = Entry(day=day, weight_kg=weight_kg, entry_ms=submitted.get("entry_ms"))
         store.upsert(entry, logged_at=logged_at)
