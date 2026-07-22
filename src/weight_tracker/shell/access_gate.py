@@ -44,7 +44,7 @@ THROTTLE_COOLDOWN = timedelta(minutes=15)
 
 
 @dataclass(frozen=True)
-class ThrottleState:
+class ThrottleState:  # probe-exempt
     """Consecutive wrong guesses and, once over the limit, when guessing reopens."""
 
     consecutive_failures: int = 0
@@ -72,17 +72,17 @@ def session_fresh(issued_at: datetime, now: datetime) -> bool:
 
 
 @dataclass(frozen=True)
-class Unlocked:
+class Unlocked:  # probe-exempt
     session_token: str
 
 
 @dataclass(frozen=True)
-class Rejected:
+class Rejected:  # probe-exempt
     pass
 
 
 @dataclass(frozen=True)
-class Throttled:
+class Throttled:  # probe-exempt
     pass
 
 

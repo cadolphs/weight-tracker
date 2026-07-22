@@ -96,7 +96,7 @@ def _startup_action_or_refuse(adapter_name: str, startup_action: Callable[[], No
         startup_action()
     except Exception as failure:
         _log_startup_refused(adapter_name, failure)
-        raise StartupRefused(f"{adapter_name} probe failed: {failure}") from failure
+        raise StartupRefused(f"{adapter_name} refused startup: {failure}") from failure
 
 
 def _log_startup_refused(adapter_name: str, failure: Exception) -> None:
