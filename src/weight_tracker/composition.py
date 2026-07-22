@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,9 @@ def build_app(
     """
     store = SqliteEntryStore(db_path)
     gate = AccessGate(passphrase_hash=passphrase_hash, session_signing_key=session_signing_key)
+    # Additive-only migrations run BEFORE probing (DEVOPS 2a); a failed migration
+    # refuses start exactly like a failed probe.
+    _startup_action_or_refuse("entry_store", store.apply_migrations)
     _probe_all_or_refuse({"entry_store": store, "access_gate": gate, "clock": clock})
     app = FastAPI()
     install_access_gate(app, gate, clock)
@@ -82,20 +86,25 @@ def _probe_all_or_refuse(adapters: dict[str, Any]) -> None:
         probe = getattr(adapter, "probe", None)
         if probe is None:
             continue
-        try:
-            probe()
-        except Exception as failure:
-            _log_startup_refused(adapter_name, failure)
-            raise StartupRefused(f"{adapter_name} probe failed: {failure}") from failure
+        _startup_action_or_refuse(adapter_name, probe)
+
+
+def _startup_action_or_refuse(adapter_name: str, startup_action: Callable[[], None]) -> None:
+    """Run one startup action (migration or probe); any failure = structured
+    `health.startup.refused` log + StartupRefused (no traffic served)."""
+    try:
+        startup_action()
+    except Exception as failure:
+        _log_startup_refused(adapter_name, failure)
+        raise StartupRefused(f"{adapter_name} probe failed: {failure}") from failure
 
 
 def _log_startup_refused(adapter_name: str, failure: Exception) -> None:
-    print(
-        json.dumps(
-            {"event": "health.startup.refused", "adapter": adapter_name, "error": str(failure)}
-        ),
-        file=sys.stderr,
-    )
+    refusal = {"event": "health.startup.refused", "adapter": adapter_name, "error": str(failure)}
+    probe_id: str | None = getattr(failure, "probe", None)
+    if probe_id is not None:
+        refusal["probe"] = probe_id
+    print(json.dumps(refusal), file=sys.stderr)
 
 
 class StartupRefused(Exception):

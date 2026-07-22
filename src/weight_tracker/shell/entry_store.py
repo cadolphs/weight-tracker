@@ -3,6 +3,11 @@
 Schema (ADR-002): entries(date TEXT PRIMARY KEY, weight_kg REAL, logged_at TEXT,
 entry_ms INTEGER) + append-only events(id, ts, name, payload).
 Pragmas: WAL + synchronous=FULL. Save is confirmed only after commit returns.
+
+Schema-version rollback guard (feature-delta.md DEVOPS 2a): additive-only
+migrations, applied idempotently at startup before probing, each recorded in
+schema_version(version, applied_ts). The probe refuses start when the DB carries
+a version newer than CODE_SCHEMA_VERSION (a rollback landed behind a schema change).
 """
 
 from __future__ import annotations
@@ -10,31 +15,53 @@ from __future__ import annotations
 import sqlite3
 import uuid
 from contextlib import closing
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from weight_tracker.core.types import Entry
 
 _LYING_FILESYSTEMS = frozenset({"tmpfs", "ramfs", "overlay", "overlayfs"})
 
-_SCHEMA = (
-    """
-    CREATE TABLE IF NOT EXISTS entries (
-        date TEXT PRIMARY KEY,
-        weight_kg REAL NOT NULL,
-        logged_at TEXT,
-        entry_ms INTEGER
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ts TEXT NOT NULL,
-        name TEXT NOT NULL,
-        payload TEXT NOT NULL
-    )
-    """,
+SCHEMA_VERSION_PROBE = "entry_store.schema_version"
+
+CODE_SCHEMA_VERSION = 1  # highest migration version this build knows
+
+_MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
+    (
+        1,  # the pre-existing ADR-002 schema folds as version 1
+        (
+            """
+            CREATE TABLE IF NOT EXISTS entries (
+                date TEXT PRIMARY KEY,
+                weight_kg REAL NOT NULL,
+                logged_at TEXT,
+                entry_ms INTEGER
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL,
+                name TEXT NOT NULL,
+                payload TEXT NOT NULL
+            )
+            """,
+        ),
+    ),
 )
+
+_SCHEMA_VERSION_TABLE = """
+    CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_ts TEXT NOT NULL
+    )
+"""
+
+
+class SchemaVersionAhead(RuntimeError):  # probe-exempt
+    """DB schema is newer than this build knows: a rollback landed behind a schema change."""
+
+    probe = SCHEMA_VERSION_PROBE
 
 
 def replication_status(db_path: Path) -> str:
@@ -72,10 +99,28 @@ class SqliteEntryStore:
         connection.execute("PRAGMA synchronous=FULL")
         return connection
 
+    def apply_migrations(self) -> None:
+        """Additive-only migrations, idempotent (DEVOPS 2a): versions the DB already
+        carries are skipped; each newly applied version is stamped with applied_ts.
+        Runs at startup BEFORE the probe; never touches a DB stamped ahead."""
+        with closing(self._connect()) as connection:
+            connection.execute(_SCHEMA_VERSION_TABLE)
+            db_version = _db_schema_version(connection)
+            for version, statements in _MIGRATIONS:
+                if version <= db_version:
+                    continue
+                for statement in statements:
+                    connection.execute(statement)
+                connection.execute(
+                    "INSERT INTO schema_version (version, applied_ts) VALUES (?, ?)",
+                    (version, datetime.now(UTC).isoformat()),
+                )
+            connection.commit()
+
     def probe(self) -> None:
         """Startup probe (Earned Trust, ADR-002): open, PRAGMA integrity_check, assert
-        WAL + synchronous=FULL, sentinel write->fsync->readback, statfs != tmpfs.
-        Raise on any failure."""
+        WAL + synchronous=FULL, schema version not ahead of the code, sentinel
+        write->fsync->readback, statfs != tmpfs. Raise on any failure."""
         filesystem_type = _filesystem_type_of(self._db_path.parent)
         if filesystem_type in _LYING_FILESYSTEMS:
             raise RuntimeError(
@@ -91,9 +136,19 @@ class SqliteEntryStore:
             synchronous = connection.execute("PRAGMA synchronous").fetchone()[0]
             if synchronous != 2:  # 2 == FULL
                 raise RuntimeError(f"synchronous is {synchronous!r}, FULL (2) required")
-            for statement in _SCHEMA:
-                connection.execute(statement)
+            self._assert_schema_not_ahead(connection)
             self._sentinel_roundtrip(connection)
+
+    @staticmethod
+    def _assert_schema_not_ahead(connection: sqlite3.Connection) -> None:
+        """Rollback-mismatch guard: refuse when the DB schema version is newer than
+        this build (probe id: entry_store.schema_version)."""
+        db_version = _db_schema_version(connection)
+        if db_version > CODE_SCHEMA_VERSION:
+            raise SchemaVersionAhead(
+                f"DB schema version {db_version} is ahead of code version "
+                f"{CODE_SCHEMA_VERSION}: a rollback landed behind a schema change"
+            )
 
     @staticmethod
     def _sentinel_roundtrip(connection: sqlite3.Connection) -> None:
@@ -156,3 +211,9 @@ class SqliteEntryStore:
 
 def _entry_from_row(row: tuple[str, float, int | None]) -> Entry:
     return Entry(day=date.fromisoformat(row[0]), weight_kg=row[1], entry_ms=row[2])
+
+
+def _db_schema_version(connection: sqlite3.Connection) -> int:
+    """Highest migration version the DB carries; 0 for a never-migrated DB."""
+    row = connection.execute("SELECT MAX(version) FROM schema_version").fetchone()
+    return 0 if row is None or row[0] is None else int(row[0])
