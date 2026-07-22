@@ -58,6 +58,12 @@ _SCHEMA_VERSION_TABLE = """
 """
 
 
+def _db_schema_version(connection: sqlite3.Connection) -> int:
+    """Highest migration version the DB carries; 0 for a never-migrated DB."""
+    row = connection.execute("SELECT MAX(version) FROM schema_version").fetchone()
+    return 0 if row is None or row[0] is None else int(row[0])
+
+
 class SchemaVersionAhead(RuntimeError):  # probe-exempt
     """DB schema is newer than this build knows: a rollback landed behind a schema change."""
 
@@ -211,9 +217,3 @@ class SqliteEntryStore:
 
 def _entry_from_row(row: tuple[str, float, int | None]) -> Entry:
     return Entry(day=date.fromisoformat(row[0]), weight_kg=row[1], entry_ms=row[2])
-
-
-def _db_schema_version(connection: sqlite3.Connection) -> int:
-    """Highest migration version the DB carries; 0 for a never-migrated DB."""
-    row = connection.execute("SELECT MAX(version) FROM schema_version").fetchone()
-    return 0 if row is None or row[0] is None else int(row[0])
