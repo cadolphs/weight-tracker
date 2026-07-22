@@ -21,7 +21,7 @@ from weight_tracker.core.trend import trend_series_in
 from weight_tracker.ports import ClockPort
 from weight_tracker.shell.access_gate import AccessGate, install_access_gate
 from weight_tracker.shell.entry_store import SqliteEntryStore, replication_status
-from weight_tracker.shell.telemetry_store import count_events_since
+from weight_tracker.shell.telemetry_store import count_events_since, entry_ms_samples_since
 from weight_tracker.web.routes import build_router
 
 
@@ -51,6 +51,7 @@ def build_app(
                                          opens incl. trend_views_this_week rolling 7 days)
         GET  /healthz                    unauthenticated health/replication status
         GET  /manifest.webmanifest       PWA install manifest
+        GET  /sw.js                      minimal service worker (app-shell cache only)
     """
     store = SqliteEntryStore(db_path)
     gate = AccessGate(passphrase_hash=passphrase_hash, session_signing_key=session_signing_key)
@@ -64,6 +65,7 @@ def build_app(
             clock=clock,
             trend_series_in=trend_series_in,
             count_events_since=partial(count_events_since, db_path),
+            entry_ms_samples_since=partial(entry_ms_samples_since, db_path),
             replication_status=lambda: replication_status(db_path),
         )
     )

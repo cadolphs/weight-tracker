@@ -10,6 +10,7 @@ application at the composition root.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import closing
 from datetime import date
@@ -28,3 +29,16 @@ def count_events_since(db_path: Path, name: str, since: date) -> int:
             (name, since.isoformat()),
         ).fetchone()
     return int(row[0])
+
+
+def entry_ms_samples_since(db_path: Path, name: str, since: date) -> list[int]:
+    """Client-measured entry durations (KPI-1) carried by `name` events stamped on
+    `since` or any later day. Saves submitted without a timing carry a null
+    entry_ms in the payload and are not samples."""
+    with closing(sqlite3.connect(db_path)) as connection:
+        rows = connection.execute(
+            "SELECT payload FROM events WHERE name = ? AND ts >= ?",
+            (name, since.isoformat()),
+        ).fetchall()
+    durations = (json.loads(payload).get("entry_ms") for (payload,) in rows)
+    return [int(duration) for duration in durations if duration is not None]

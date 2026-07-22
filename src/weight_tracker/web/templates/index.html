@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Weight Tracker</title>
+  <link rel="manifest" href="/manifest.webmanifest">
 </head>
 <body>
   <main>
@@ -11,6 +12,9 @@
     <form method="post" action="/entries">
       <label for="weight">Weight (kg)</label>
       <input id="weight" name="weight" inputmode="decimal" autocomplete="off" autofocus>
+      {% if yesterday_kg is not none %}
+      <p id="yesterday-reference">yesterday: {{ "%.1f"|format(yesterday_kg) }} kg</p>
+      {% endif %}
       <button type="submit">Save</button>
       <p id="save-feedback" role="alert" hidden></p>
     </form>
@@ -35,7 +39,12 @@
       const response = await fetch("/entries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: deviceLocalDay(), weight: weightInput.value }),
+        body: JSON.stringify({
+          date: deviceLocalDay(),
+          weight: weightInput.value,
+          // KPI-1: client-measured duration from screen-interactive to save tap.
+          entry_ms: Math.round(performance.now()),
+        }),
       });
       const outcome = await response.json();
       feedback.hidden = false;
@@ -48,6 +57,11 @@
       }
       weightInput.focus();
     });
+
+    // Installable PWA (D-11): app-shell cache only, no offline queueing.
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js");
+    }
   </script>
 </body>
 </html>
