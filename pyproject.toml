@@ -51,6 +51,7 @@ markers = [
     "pending: authored by DISTILL, awaiting its DELIVER step (one-scenario-at-a-time)",
     "us_001: traces to US-001", "us_002: traces to US-002", "us_003: traces to US-003",
     "us_004: traces to US-004", "us_005: traces to US-005", "us_006: traces to US-006",
+    "us_007: traces to US-007",
     "contract_shape_pure_function: contract shape tag",
     "contract_shape_bounded_change: contract shape tag",
     "contract_shape_unbounded_preservation: contract shape tag",

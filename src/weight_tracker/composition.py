@@ -18,6 +18,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from weight_tracker.core.glance import glance
 from weight_tracker.core.trend import trend_series_in
 from weight_tracker.ports import ClockPort
 from weight_tracker.shell.access_gate import AccessGate, install_access_gate
@@ -41,8 +42,12 @@ def build_app(
     - Routes (driving adapters over the driving ports):
         POST /login                      AccessGate
         GET  /                           entry screen (today preselected, focused decimal
-                                         field, yesterday reference)
+                                         field, yesterday reference, trend glance line from
+                                         the same fetched entries; render with glance data
+                                         emits trend_glance_shown, D-13/D-14)
         POST /entries                    WeightLogging.record_or_replace(date, kg, entry_ms)
+                                         (saved responses carry "glance" display text for the
+                                         in-place refresh; delivery emits trend_glance_shown)
         GET  /entries?scale=...          WeightHistory.entries_in(window)
         GET  /trend?scale=...            TrendProjection.trend_series_in(window)
                                          (emits trend_view_opened event, KPI-3)
@@ -68,6 +73,7 @@ def build_app(
             gate=gate,
             clock=clock,
             trend_series_in=trend_series_in,
+            glance_summary_of=glance,
             count_events_since=partial(count_events_since, db_path),
             entry_ms_samples_since=partial(entry_ms_samples_since, db_path),
             replication_status=lambda: replication_status(db_path),

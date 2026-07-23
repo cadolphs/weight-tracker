@@ -27,6 +27,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from weight_tracker.core.glance import GlanceSummary, quantize_rate, rate_glyph
 from weight_tracker.core.types import (
     Entry,
     Rejected,
@@ -57,10 +58,16 @@ from weight_tracker.shell.access_gate import (
 
 ENTRY_SAVED_EVENT = "entry.saved"
 TREND_VIEW_OPENED_EVENT = "trend.view.opened"
+TREND_GLANCE_SHOWN_EVENT = "trend.glance.shown"
 
 #: TrendProjection driving port: read-only, derived-never-stored (ADR-004) -- a pure
 #: function of the FULL entry set, windowed on the output. Wired at the composition root.
 TrendProjection = Callable[[Sequence[Entry], TimeScale, date], list[TrendPoint]]
+
+#: GlanceProjection driving port: read-only, derived-never-stored (ADR-006) -- a pure
+#: function of the FULL entry set. Wired at the composition root (D-13); the glance
+#: path never touches GET /trend (KPI-3 separation is structural).
+GlanceProjection = Callable[[Sequence[Entry]], GlanceSummary | None]
 
 #: Shell translation of the core's closed RejectionReason set into inline messages (C6b/C6c).
 #: The core judges; the shell phrases. No validation logic lives here.
@@ -112,6 +119,18 @@ PWA_MANIFEST: dict[str, Any] = {
     "theme_color": "#111111",
     "icons": [{"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml"}],
 }
+
+
+def glance_display_text(summary: GlanceSummary) -> str:
+    """ADR-006 pinned display: `Trend: {value:.1f} kg` with the rate segment
+    ` · {glyph}{abs:.2f} kg/week` (glyph directly prefixing the quantized
+    magnitude) once the 7-day entry span is earned. The core judges the numbers;
+    this shell only phrases them."""
+    value_text = f"Trend: {summary.trend_kg:.1f} kg"
+    if summary.rate_kg_per_week is None:
+        return value_text
+    quantized_rate = quantize_rate(summary.rate_kg_per_week)
+    return f"{value_text} · {rate_glyph(quantized_rate)}{abs(quantized_rate):.2f} kg/week"
 
 
 def weight_on(entries: Sequence[Entry], day: date) -> float | None:
@@ -170,11 +189,24 @@ def build_router(
     gate: AccessGate,
     clock: ClockPort,
     trend_series_in: TrendProjection,
+    glance_summary_of: GlanceProjection,
     count_events_since: Callable[[str, date], int],
     entry_ms_samples_since: Callable[[str, date], list[int]],
     replication_status: Callable[[], str],
 ) -> APIRouter:
     router = APIRouter()
+
+    def deliver_glance(entries: Sequence[Entry]) -> str | None:
+        """One glance delivery (D-14): the display text when a glance exists, paired
+        with exactly one trend.glance.shown event; None (and no event) with no data.
+        No per-day dedup -- KPI-5 pairing is computed at read time on /stats."""
+        summary = glance_summary_of(entries)
+        if summary is None:
+            return None
+        store.append_event(
+            ts=clock.now_utc().isoformat(), name=TREND_GLANCE_SHOWN_EVENT, payload="{}"
+        )
+        return glance_display_text(summary)
 
     @router.post("/login")
     async def login(request: Request) -> Response:
@@ -212,12 +244,18 @@ def build_router(
     @router.get("/")
     def entry_screen(request: Request) -> Response:
         """Five-second entry screen: focused decimal field, yesterday's weight as
-        the anchor beside the input (absent gracefully on the first morning)."""
+        the anchor beside the input (absent gracefully on the first morning), and
+        the trend glance derived from the SAME fetched entry list (zero added I/O,
+        D-13); a render with glance data is one counted delivery (D-14)."""
+        entries = store.all_entries()
         yesterday = clock.now_utc().date() - timedelta(days=1)
         return _templates.TemplateResponse(
             request=request,
             name="index.html",
-            context={"yesterday_kg": weight_on(store.all_entries(), yesterday)},
+            context={
+                "yesterday_kg": weight_on(entries, yesterday),
+                "glance_text": deliver_glance(entries),
+            },
         )
 
     @router.get("/manifest.webmanifest")
@@ -257,6 +295,9 @@ def build_router(
             "confirmation": saved.confirmation,
             "date": day.isoformat(),
             "weight_kg": weight_kg,
+            # In-place refresh (D-13): the glance recomputed with today's entry rides
+            # on the save response -- a route-level concern, never a port widening.
+            "glance": deliver_glance(store.all_entries()),
         }
 
     @router.get("/entries")
@@ -315,6 +356,7 @@ def build_router(
         return {
             "entry_logged_count": store.count_events(ENTRY_SAVED_EVENT),
             "trend_view_opened_count": store.count_events(TREND_VIEW_OPENED_EVENT),
+            "trend_glance_shown_count": store.count_events(TREND_GLANCE_SHOWN_EVENT),
             "trend_views_this_week": count_events_since(TREND_VIEW_OPENED_EVENT, kpi_week_start),
             "speed": speed_summary(entry_ms_samples_since(ENTRY_SAVED_EVENT, kpi_week_start)),
         }

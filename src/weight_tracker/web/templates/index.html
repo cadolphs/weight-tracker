@@ -9,6 +9,9 @@
 <body>
   <main>
     <h1>Log today's weight</h1>
+    {% if glance_text is not none %}
+    <p id="trend-glance">{{ glance_text }}</p>
+    {% endif %}
     <form method="post" action="/entries">
       <label for="weight">Weight (kg)</label>
       <input id="weight" name="weight" inputmode="decimal" autocomplete="off" autofocus>
@@ -34,6 +37,19 @@
     const weightInput = document.getElementById("weight");
     const feedback = document.getElementById("save-feedback");
 
+    // In-place glance refresh (D-13): the saved response carries the glance
+    // recomputed with today's entry -- no reload, no extra fetch.
+    function refreshGlance(glanceText) {
+      if (glanceText == null) return;
+      let glanceLine = document.getElementById("trend-glance");
+      if (!glanceLine) {
+        glanceLine = document.createElement("p");
+        glanceLine.id = "trend-glance";
+        entryForm.parentNode.insertBefore(glanceLine, entryForm);
+      }
+      glanceLine.textContent = glanceText;
+    }
+
     entryForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const response = await fetch("/entries", {
@@ -50,6 +66,7 @@
       feedback.hidden = false;
       if (outcome.outcome === "saved") {
         feedback.textContent = outcome.confirmation;
+        refreshGlance(outcome.glance);
         weightInput.value = "";
       } else {
         feedback.textContent = outcome.message;

@@ -36,6 +36,7 @@ HTTP surface contract (executable spec for DELIVER -- see build_app docstring):
 from __future__ import annotations
 
 import os
+import re
 import stat
 import time
 from datetime import date, timedelta
@@ -46,8 +47,10 @@ from typing import Any
 from argon2 import PasswordHasher
 from domain_types import (
     TEST_PASSPHRASE,
+    RateDisposition,
     RejectionReason,
     TimeScale,
+    TrendDirection,
     ViewMode,
     parse_day,
 )
@@ -55,12 +58,22 @@ from fake_clock import FakeClock
 from state_delta import assert_state_delta, set_to, unchanged
 
 from weight_tracker.composition import StartupRefused, build_app
+from weight_tracker.core.trend import trend_series
+from weight_tracker.core.types import Entry
 
 UNIVERSE = {
     "record.entries",
     "telemetry.entry_logged_count",
     "telemetry.trend_view_opened_count",
 }
+
+#: Glance-aware universe (US-007). The three shared slots stay untouched for the
+#: pre-existing scenarios (their universes are their own declared promises); the
+#: glance scenarios additionally track the glance-delivery counter.
+GLANCE_UNIVERSE = UNIVERSE | {"telemetry.trend_glance_shown_count"}
+
+#: /stats key for glance deliveries (grammar: `trend.view.opened` -> trend_view_opened_count).
+GLANCE_COUNT_KEY = "trend_glance_shown_count"
 
 WRONG_PASSPHRASE = "not-the-passphrase"
 SESSION_SIGNING_KEY = "test-session-signing-key"
@@ -87,6 +100,7 @@ class TrackerComposition:
         self.health = HealthService(self)
         self.system = SystemService(self)
         self.clock = ClockService(self)
+        self.glance = GlanceService(self)
 
     # -- composition root (lazy: nothing is built until first use) ----------------
 
@@ -278,6 +292,12 @@ class LoggingService(_Service):
         for offset in range((end - start).days + 1):
             day = start + timedelta(days=offset)
             self.seed(day, round(from_kg - per_week * ((day - start).days // 7 + 1), 1))
+
+    def seed_weekly_change(self, from_kg: float, per_week: float, start: date, end: date) -> None:
+        """Signed weekly drift (US-007 direction seeds): negative per_week falls, positive rises."""
+        for offset in range((end - start).days + 1):
+            day = start + timedelta(days=offset)
+            self.seed(day, round(from_kg + per_week * ((day - start).days // 7 + 1), 1))
 
     def seed_timed_week(self, end: date) -> list[int]:
         timings = [4200, 3900, 5100, 4400, 4800, 6900, 4100]
@@ -518,6 +538,18 @@ class ScreenService(_Service):
     def open_entry(self) -> Any:
         return self.comp.actor().get("/")
 
+    def open_entry_timed(self, ctx: SimpleNamespace) -> Any:
+        started = time.monotonic()
+        resp = self.comp.actor().get("/")
+        ctx.elapsed_ms = (time.monotonic() - started) * 1000
+        return resp
+
+    def assert_ready_within(self, ctx: SimpleNamespace, budget_ms: int) -> None:
+        assert ctx.response.status_code == 200
+        assert ctx.elapsed_ms <= budget_ms, (
+            f"the entry screen took {ctx.elapsed_ms:.0f} ms, budget {budget_ms} ms"
+        )
+
     def assert_ready_for_typing(self, ctx: SimpleNamespace) -> None:
         html = ctx.response.text
         assert "autofocus" in html, "the weight field must be focused on open"
@@ -606,3 +638,277 @@ class SystemService(_Service):
         assert ctx.refusal is not None, (
             "the tracker must refuse to open when the record cannot be stored safely"
         )
+
+
+#: The one neutral glance element (identical markup for ↓ / ↑ / → -- information,
+#: never judgment): `<p id="trend-glance">Trend: 82.3 kg · ↓0.25 kg/week</p>`.
+GLANCE_LINE = re.compile(r'<p id="trend-glance">([^<]*)</p>')
+NEUTRAL_GLANCE_OPENING = '<p id="trend-glance">'
+
+
+class GlanceService(_Service):
+    """Glance summary on the entry screen (US-007, ADR-006, D-13/D-14).
+
+    DELIVER-facing HTTP contract (executable spec):
+        GET  /        -> when a glance exists, the HTML holds exactly the neutral element
+                         above (no direction-dependent class/style; rate part absent below
+                         the 7-day ENTRY span; element absent with no data or on failure);
+                         each render delivering data appends one `trend.glance.shown` event.
+        POST /entries -> SAVED responses gain `"glance": "<display text>" | null`
+                         (null = degraded -- the save never blocks on the trend); a
+                         delivery with data appends one `trend.glance.shown`. REJECTED
+                         responses carry NO glance field and append nothing.
+        GET  /stats   -> gains `"trend_glance_shown_count"` (total deliveries).
+        GET  /trend   -> UNTOUCHED: still emits `trend.view.opened` per open (KPI-3
+                         separation is structural -- the glance never touches it).
+
+    Oracle: the shipped pure `trend_series` (OUT-5-verified) plus the ADR-006 PINNED
+    display expressions encoded verbatim below (they ARE the spec, not a re-derivation):
+    value = series END at 0.1 kg; rate = `series[-1] - series[-8]` iff entry span >= 7
+    days; quantize `round(rate / 0.05) * 0.05` (built-in round as pinned); glyph from
+    the ROUNDED sign, magnitude displayed as abs with two decimals. The glance must
+    equal the graph line's own end and trailing-week change for the same entries
+    (single-source AC); after a save BOTH revise together (RTS co-revision) -- these
+    oracles judge the CURRENT pair's coherence, never prior renderings.
+    """
+
+    # -- oracle -------------------------------------------------------------------
+
+    def _entries(self) -> list[Entry]:
+        shown = self.comp.observer().get("/entries", params={"scale": TimeScale.ALL.value})
+        return [
+            Entry(day=date.fromisoformat(e["date"]), weight_kg=e["weight_kg"])
+            for e in shown.json()["entries"]
+        ]
+
+    @staticmethod
+    def _pinned_rate_text(rate_kg_per_week: float) -> str:
+        quantized = round(rate_kg_per_week / 0.05) * 0.05  # ADR-006 pinned expression
+        glyph = "↓" if quantized < 0 else ("↑" if quantized > 0 else "→")
+        return f"{glyph}{abs(quantized):.2f} kg/week"
+
+    def expected_text(self) -> str | None:
+        entries = self._entries()
+        series = trend_series(entries)
+        if not series:
+            return None
+        value_text = f"Trend: {series[-1].trend_kg:.1f} kg"
+        span_days = (max(e.day for e in entries) - min(e.day for e in entries)).days
+        if span_days < 7:
+            return value_text
+        rate = series[-1].trend_kg - series[-8].trend_kg
+        return f"{value_text} · {self._pinned_rate_text(rate)}"
+
+    def _shown_line(self, ctx: SimpleNamespace) -> str:
+        """The CURRENT glance line: the rendered element on an entry-screen response,
+        or -- after a save -- the line the saved response carried for the in-place
+        refresh (already oracle-checked and remembered as ctx.glance_text)."""
+        found = GLANCE_LINE.search(ctx.response.text)
+        if found is not None:
+            return found.group(1).strip()
+        delivered = getattr(ctx, "glance_text", None)
+        assert delivered is not None, "expected the glance line on the entry screen, none shown"
+        return delivered
+
+    # -- universe (Mandate 8; glance-aware superset of the shared capture) ---------
+
+    def capture(self) -> dict[str, Any]:
+        stats = self.comp.observer().get("/stats").json()
+        assert GLANCE_COUNT_KEY in stats, (
+            f"the stats page must report glance deliveries ({GLANCE_COUNT_KEY!r}), "
+            f"got {sorted(stats)}"
+        )
+        return {
+            **self.comp.capture_universe(),
+            "telemetry.trend_glance_shown_count": stats[GLANCE_COUNT_KEY],
+        }
+
+    # -- journey moves (Given-flavored: observe, then remember the state) ----------
+
+    def seed_recent(self, direction: TrendDirection) -> None:
+        """Two weeks of entries ending yesterday: falling, rising, or dead steady."""
+        end = self.comp.resolve_day("yesterday")
+        start = end - timedelta(days=14)
+        if direction is TrendDirection.STEADY:
+            self.comp.logging.seed_steady(82.0, start, end)
+        else:
+            per_week = -0.5 if direction is TrendDirection.FALLING else 0.5
+            self.comp.logging.seed_weekly_change(82.5, per_week, start, end)
+
+    def shows_now(self, ctx: SimpleNamespace) -> None:
+        ctx.response = self.comp.screen.open_entry()
+        self.assert_line_matches(ctx)
+        ctx.glance_before = self.capture()
+
+    def saw_no_line(self, ctx: SimpleNamespace) -> None:
+        ctx.response = self.comp.screen.open_entry()
+        self.comp.screen.assert_ready_for_typing(ctx)
+        assert GLANCE_LINE.search(ctx.response.text) is None, (
+            "an empty record must show no trend line"
+        )
+        ctx.glance_before = self.capture()
+
+    def break_computation(self, monkeypatch: Any) -> None:
+        """Inject a failing glance callable, then restart so the wiring picks it up.
+
+        All plausible bindings are patched (module of definition + composition/route
+        rebinding sites) so the injection holds regardless of the crafter's import style.
+        """
+
+        def failing_glance(*_args: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError("glance computation failed (injected fault)")
+
+        for target in (
+            "weight_tracker.core.glance.glance",
+            "weight_tracker.composition.glance",
+            "weight_tracker.web.routes.glance",
+        ):
+            monkeypatch.setattr(target, failing_glance, raising=False)
+        self.comp.system.restart()
+
+    def deliver_mornings(self, mornings: int) -> None:
+        for _ in range(mornings):
+            self.comp.clock.days_pass(1)
+            self.comp.actor().get("/")
+
+    def study_trend(self, times: int) -> None:
+        for _ in range(times):
+            self.comp.actor().get("/trend", params={"scale": TimeScale.ONE_MONTH.value})
+
+    # -- outcome assertions --------------------------------------------------------
+
+    def assert_line_matches(self, ctx: SimpleNamespace) -> None:
+        expected = self.expected_text()
+        assert expected is not None, "oracle bug: glance asserted on a record with no trend"
+        ctx.glance_text = self._shown_line(ctx)
+        assert ctx.glance_text == expected, (
+            f"glance line reads {ctx.glance_text!r}, the entry record demands {expected!r}"
+        )
+
+    def assert_no_line(self, ctx: SimpleNamespace) -> None:
+        assert GLANCE_LINE.search(ctx.response.text) is None, (
+            "the trend line must be absent, not shown broken"
+        )
+
+    def assert_value_shown(self, ctx: SimpleNamespace) -> None:
+        assert self._shown_line(ctx).startswith("Trend: "), "expected a glanced trend value"
+
+    def assert_value_fragment(self, ctx: SimpleNamespace, text: str) -> None:
+        line = self._shown_line(ctx)
+        assert f"Trend: {text}" in line, f"expected the trend to read {text!r}, line: {line!r}"
+
+    def assert_rate_fragment(self, ctx: SimpleNamespace, text: str) -> None:
+        line = self._shown_line(ctx)
+        assert text in line, f"expected the weekly rate {text!r}, line: {line!r}"
+
+    def assert_glyph(self, ctx: SimpleNamespace, glyph: str) -> None:
+        line = self._shown_line(ctx)
+        assert glyph in line, f"expected the direction glyph {glyph!r}, line: {line!r}"
+
+    def assert_neutral_styling(self, ctx: SimpleNamespace) -> None:
+        assert NEUTRAL_GLANCE_OPENING in ctx.response.text, (
+            "every direction must wear the one neutral glance element -- no "
+            "direction-dependent class, style, or color"
+        )
+
+    def assert_rate_disposition(self, ctx: SimpleNamespace, disposition: RateDisposition) -> None:
+        line = self._shown_line(ctx)
+        if disposition is RateDisposition.SHOWN:
+            assert "kg/week" in line, f"a >=7-day span has earned its rate, line: {line!r}"
+        else:
+            assert "kg/week" not in line, (
+                f"a rate on a young record is noise dressed as insight, line: {line!r}"
+            )
+
+    def assert_value_and_rate_shown(self, ctx: SimpleNamespace) -> None:
+        self.assert_value_shown(ctx)
+        self.assert_rate_disposition(ctx, RateDisposition.SHOWN)
+
+    def _series_over_the_wire(self) -> list[tuple[str, float]]:
+        resp = self.comp.observer().get("/trend", params={"scale": TimeScale.ALL.value})
+        assert resp.status_code == 200, f"trend not available: {resp.status_code}"
+        return [(p["date"], p["trend_kg"]) for p in resp.json()["points"]]
+
+    def assert_matches_graph_line_end(self, ctx: SimpleNamespace) -> None:
+        """Single-source AC (journey step 1<->3): glanced value == the graph line's END."""
+        line_end_kg = self._series_over_the_wire()[-1][1]
+        self.assert_value_fragment(ctx, f"{line_end_kg:.1f} kg")
+
+    def assert_rate_is_trailing_week_change(self, ctx: SimpleNamespace) -> None:
+        """RTS co-revision oracle: the CURRENT pair coheres -- displayed rate == the
+        displayed line's own trailing-7-day net change (never prior renderings)."""
+        series = self._series_over_the_wire()
+        self.assert_rate_fragment(ctx, self._pinned_rate_text(series[-1][1] - series[-8][1]))
+
+    def _glance_from_save(self, ctx: SimpleNamespace) -> Any:
+        body = ctx.response.json()
+        assert "glance" in body, (
+            f"a saved response must carry the glance for the in-place refresh, got {sorted(body)}"
+        )
+        return body["glance"]
+
+    def _assert_saved_delivery_delta(self, ctx: SimpleNamespace) -> None:
+        body = ctx.response.json()
+        expected_entries = tuple(
+            sorted(
+                (
+                    {d: w for d, w in ctx.glance_before["record.entries"]}
+                    | {body["date"]: body["weight_kg"]}
+                ).items()
+            )
+        )
+        after = self.capture()
+        assert_state_delta(
+            before={
+                **ctx.glance_before,
+                "record.entries": tuple(sorted(ctx.glance_before["record.entries"])),
+            },
+            after={**after, "record.entries": tuple(sorted(after["record.entries"]))},
+            universe=GLANCE_UNIVERSE,
+            expected={
+                "record.entries": set_to(expected_entries),
+                "telemetry.entry_logged_count": set_to(
+                    ctx.glance_before["telemetry.entry_logged_count"] + 1
+                ),
+                "telemetry.trend_glance_shown_count": set_to(
+                    ctx.glance_before["telemetry.trend_glance_shown_count"] + 1
+                ),
+                "telemetry.trend_view_opened_count": unchanged(),
+            },
+        )
+
+    def assert_refreshed_by_save(self, ctx: SimpleNamespace) -> None:
+        shown = self._glance_from_save(ctx)
+        expected = self.expected_text()
+        assert shown == expected and expected is not None, (
+            f"the refreshed glance reads {shown!r}, today's record demands {expected!r}"
+        )
+        ctx.glance_text = shown
+        self._assert_saved_delivery_delta(ctx)
+
+    def assert_first_glance(self, ctx: SimpleNamespace, kg: float) -> None:
+        shown = self._glance_from_save(ctx)
+        assert shown == f"Trend: {kg:.1f} kg", (
+            f"the very first entry must glance as its own trend with no rate, got {shown!r}"
+        )
+
+    def assert_delivery_recorded(self, ctx: SimpleNamespace) -> None:
+        self._assert_saved_delivery_delta(ctx)
+
+    def assert_no_glance_on_save(self, ctx: SimpleNamespace) -> None:
+        assert self._glance_from_save(ctx) is None, (
+            "a failing trend must degrade the save's glance to null, never block the save"
+        )
+
+    def assert_no_glance_for_rejection(self, ctx: SimpleNamespace) -> None:
+        assert "glance" not in ctx.response.json(), "a rejected save carries no glance"
+        assert_state_delta(
+            before=ctx.glance_before,
+            after=self.capture(),
+            universe=GLANCE_UNIVERSE,
+            expected={},  # fail-closed: nothing changed, not even the glance trail
+        )
+
+    def assert_delivered_times(self, times: int) -> None:
+        delivered = self.capture()["telemetry.trend_glance_shown_count"]
+        assert delivered == times, f"expected {times} glance deliveries, counted {delivered}"

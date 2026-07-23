@@ -10,6 +10,7 @@ where an enum exists.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from enum import Enum
 
 from weight_tracker.core.types import (  # noqa: F401  (re-exports are the point)
     MAX_DEVICE_SKEW_DAYS,
@@ -64,6 +65,22 @@ VIEW_WORDS: dict[str, ViewMode] = {
     "raw": ViewMode.RAW,
 }
 
+
+class TrendDirection(Enum):
+    """Recent movement of the record, as the Gherkin surface speaks it (US-007)."""
+
+    FALLING = "falling"
+    RISING = "rising"
+    STEADY = "steady"
+
+
+class RateDisposition(Enum):
+    """Whether the weekly rate is shown or honestly held back (ADR-006 span rule)."""
+
+    SHOWN = "shown"
+    HELD_BACK = "held back"
+
+
 _WEEKDAYS = (
     "Monday",
     "Tuesday",
@@ -94,6 +111,14 @@ def parse_scale(label: str) -> TimeScale:
 
 def parse_view(word: str) -> ViewMode:
     return VIEW_WORDS[word]
+
+
+def parse_direction(word: str) -> TrendDirection:
+    return TrendDirection(word)
+
+
+def parse_rate_disposition(phrase: str) -> RateDisposition:
+    return RateDisposition(phrase)
 
 
 def parse_reason(phrase: str) -> RejectionReason:
