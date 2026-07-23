@@ -151,7 +151,47 @@ class ClockService(_Service):
         self.comp.fake_clock.advance_days(days)
 
 
+#: Browser-flavored navigation: what the phone sends when Clemens taps the icon.
+BROWSER_HTML = {"accept": "text/html"}
+
+
 class AccessService(_Service):
+    def visit_in_browser(self) -> Any:
+        """A human page navigation (HTML-accepting GET of the app root)."""
+        return self.comp.actor().get("/", headers=BROWSER_HTML)
+
+    def enter_passphrase_at_door(self, passphrase: str) -> Any:
+        """Submit the door's form the way a browser would: HTML-accepting, redirects followed."""
+        return self.comp.actor().post(
+            "/login",
+            data={"passphrase": passphrase},
+            headers=BROWSER_HTML,
+            follow_redirects=True,
+        )
+
+    def assert_passphrase_door(self, ctx: SimpleNamespace) -> None:
+        resp = ctx.response
+        assert resp.headers.get("content-type", "").startswith("text/html"), (
+            "a locked browser visit must be met by the passphrase door page, "
+            f"not {resp.headers.get('content-type')!r}: {resp.text[:120]!r}"
+        )
+        assert 'action="/login"' in resp.text and 'name="passphrase"' in resp.text, (
+            "the door page must hold a passphrase form that submits to the login door"
+        )
+
+    def assert_landed_on_entry_screen(self, ctx: SimpleNamespace) -> None:
+        assert ctx.response.request.url.path == "/", (
+            "after the right passphrase the browser must land on the entry screen, "
+            f"but stayed at {ctx.response.request.url.path!r}"
+        )
+        self.comp.screen.assert_ready_for_typing(ctx)
+
+    def assert_door_rejection(self, ctx: SimpleNamespace) -> None:
+        self.assert_passphrase_door(ctx)
+        assert "wrong passphrase" in ctx.response.text.lower(), (
+            "the door must show a visible, polite rejection after a wrong passphrase"
+        )
+
     def unlock(self) -> Any:
         resp = self.comp.actor().post("/login", data={"passphrase": TEST_PASSPHRASE})
         assert resp.status_code in (200, 303), f"unlock failed: {resp.status_code}"

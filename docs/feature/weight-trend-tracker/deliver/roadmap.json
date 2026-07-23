@@ -2,7 +2,7 @@
   "roadmap": {
     "project_id": "weight-trend-tracker",
     "created_at": "2026-07-22T16:56:10Z",
-    "total_steps": 15
+    "total_steps": 16
   },
   "phases": [
     {
@@ -380,6 +380,29 @@
           "implementation_notes": "Roadmap gap discovered at Phase 3.5: DEVOPS Pre-Requisite 2a (feature-delta.md) mandates this runtime enforcement implemented by DELIVER; no DISTILL scenario models it (deployment-level rollback), so the crafter authors the adapter integration test (real SQLite, single-example \u2014 integration tests verify wiring per the test paradigm mandate). EXEMPT FROM PARADIGM at unit level: guard is adapter/probe code; compensated by the integration test.",
           "test_file": "tests/weight-trend-tracker/integration/test_schema_version_guard.py",
           "scenario_name": "test_schema_version_guard"
+        },
+        {
+          "id": "03-08",
+          "name": "Browser login page: the passphrase door (AT_GAP-5)",
+          "description": "Locked browser navigations render an HTML passphrase form instead of raw JSON 401; correct form submit sets the session cookie and redirects to the entry screen; wrong submit re-renders the form with a rejection message. API/non-HTML requests keep the JSON 401 contract.",
+          "criteria": [
+            "Locked GET / (Accept: text/html) renders a passphrase form page",
+            "Correct form submit \u2192 session cookie + redirect to entry screen",
+            "Wrong form submit \u2192 form re-rendered with visible rejection, still locked",
+            "Existing JSON 401 contract and all 83 prior tests unchanged"
+          ],
+          "estimate": "2h",
+          "deps": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/shell/access_gate.py",
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/"
+          ],
+          "implementation_notes": "Post-GA gap found on first real browser visit (dogfood). Scenarios authored by nw-acceptance-designer as AT_GAP-5. Content negotiation in the gate middleware (HTML navigation vs API); no change to AccessGate core login semantics.",
+          "test_file": "tests/weight-trend-tracker/acceptance/access-protection.feature",
+          "scenario_name": "A locked visit is met by the passphrase door, The passphrase door opens onto the entry screen, A wrong passphrase keeps the door shut but polite"
         }
       ]
     }

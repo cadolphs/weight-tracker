@@ -12,6 +12,7 @@ Access state machine (C2a):
 from __future__ import annotations
 
 from composition import WRONG_PASSPHRASE
+from domain_types import TEST_PASSPHRASE
 from pytest_bdd import given, parsers, then, when
 
 # ---------------------------------------------------------------- Given
@@ -34,6 +35,22 @@ def step_days_pass_mid_journey(composition, n):
 
 
 # ---------------------------------------------------------------- When
+
+
+@given("he has visited the tracker in his browser")
+@when("he visits the tracker in his browser")
+def step_visits_in_browser(composition, ctx):
+    ctx.response = composition.access.visit_in_browser()
+
+
+@when("he enters his passphrase at the door")
+def step_enters_passphrase_at_door(composition, ctx):
+    ctx.response = composition.access.enter_passphrase_at_door(TEST_PASSPHRASE)
+
+
+@when("he enters a wrong passphrase at the door")
+def step_enters_wrong_passphrase_at_door(composition, ctx):
+    ctx.response = composition.access.enter_passphrase_at_door(WRONG_PASSPHRASE)
 
 
 @when("he unlocks the tracker with his passphrase")
@@ -62,6 +79,21 @@ def step_checks_health(composition, ctx):
 
 
 # ---------------------------------------------------------------- Then
+
+
+@then("the passphrase door is shown rather than a bare refusal")
+def step_door_shown(composition, ctx):
+    composition.access.assert_passphrase_door(ctx)
+
+
+@then("the browser lands on the entry screen")
+def step_landed_on_entry_screen(composition, ctx):
+    composition.access.assert_landed_on_entry_screen(ctx)
+
+
+@then("the passphrase door is shown again with a visible rejection")
+def step_door_rejection(composition, ctx):
+    composition.access.assert_door_rejection(ctx)
 
 
 @then("his record is open to him")

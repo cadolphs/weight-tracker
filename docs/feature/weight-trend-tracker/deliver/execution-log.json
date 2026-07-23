@@ -1,350 +1,371 @@
 {
- "schema_version": "3.0",
- "feature_id": "weight-trend-tracker",
- "events": [
-  {
-   "sid": "01-01",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:10:42Z"
-  },
-  {
-   "sid": "01-01",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:13:11Z"
-  },
-  {
-   "sid": "01-01",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:13:22Z"
-  },
-  {
-   "sid": "01-02",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:16:13Z"
-  },
-  {
-   "sid": "01-02",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:17:25Z"
-  },
-  {
-   "sid": "01-02",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:17:44Z"
-  },
-  {
-   "sid": "01-03",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:20:42Z"
-  },
-  {
-   "sid": "01-03",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "FAIL",
-   "t": "2026-07-22T17:25:09Z"
-  },
-  {
-   "sid": "01-03",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:31:19Z"
-  },
-  {
-   "sid": "01-03",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:31:34Z"
-  },
-  {
-   "sid": "01-04",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:33:38Z"
-  },
-  {
-   "sid": "01-04",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:41:39Z"
-  },
-  {
-   "sid": "01-04",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:42:07Z"
-  },
-  {
-   "sid": "02-01",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:45:40Z"
-  },
-  {
-   "sid": "02-01",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:47:47Z"
-  },
-  {
-   "sid": "02-01",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:48:04Z"
-  },
-  {
-   "sid": "02-02",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:52:01Z"
-  },
-  {
-   "sid": "02-02",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:53:24Z"
-  },
-  {
-   "sid": "02-02",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:53:36Z"
-  },
-  {
-   "sid": "02-03",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:57:53Z"
-  },
-  {
-   "sid": "02-03",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T17:59:47Z"
-  },
-  {
-   "sid": "02-03",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:00:01Z"
-  },
-  {
-   "sid": "02-04",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:02:39Z"
-  },
-  {
-   "sid": "02-04",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:03:56Z"
-  },
-  {
-   "sid": "02-04",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:04:07Z"
-  },
-  {
-   "sid": "03-01",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:07:27Z"
-  },
-  {
-   "sid": "03-01",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:09:58Z"
-  },
-  {
-   "sid": "03-01",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:10:09Z"
-  },
-  {
-   "sid": "03-02",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:26:08Z"
-  },
-  {
-   "sid": "03-02",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:26:45Z"
-  },
-  {
-   "sid": "03-02",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:26:58Z"
-  },
-  {
-   "sid": "03-03",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:30:09Z"
-  },
-  {
-   "sid": "03-03",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:30:36Z"
-  },
-  {
-   "sid": "03-03",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:30:50Z"
-  },
-  {
-   "sid": "03-04",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:49:30Z"
-  },
-  {
-   "sid": "03-04",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:52:06Z"
-  },
-  {
-   "sid": "03-04",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:52:30Z"
-  },
-  {
-   "sid": "03-05",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T18:59:35Z"
-  },
-  {
-   "sid": "03-05",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T19:02:44Z"
-  },
-  {
-   "sid": "03-05",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T19:02:56Z"
-  },
-  {
-   "sid": "03-06",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T19:15:21Z"
-  },
-  {
-   "sid": "03-06",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T19:18:01Z"
-  },
-  {
-   "sid": "03-06",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T19:18:19Z"
-  },
-  {
-   "sid": "03-07",
-   "p": "RED",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T19:31:04Z"
-  },
-  {
-   "sid": "03-07",
-   "p": "GREEN",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T19:34:03Z"
-  },
-  {
-   "sid": "03-07",
-   "p": "COMMIT",
-   "s": "EXECUTED",
-   "d": "PASS",
-   "t": "2026-07-22T19:34:16Z"
-  }
- ],
- "gates": [
-  {
-   "gate": "post-merge-integration",
-   "status": "PASS",
-   "environments_tested": [
-    "local-dev",
-    "ci-mirror-local"
-   ],
-   "environments_deferred": [
-    "production (operator prerequisites: Fly app, volume, secrets)"
-   ],
-   "stories_demoed": [
-    "US-001",
-    "US-002",
-    "US-003",
-    "US-004",
-    "US-005",
-    "US-006"
-   ],
-   "timestamp": "2026-07-22T19:05:00Z"
-  }
- ]
+  "schema_version": "3.0",
+  "feature_id": "weight-trend-tracker",
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:10:42Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:13:11Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:13:22Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:16:13Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:17:25Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:17:44Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:20:42Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "FAIL",
+      "t": "2026-07-22T17:25:09Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:31:19Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:31:34Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:33:38Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:41:39Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:42:07Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:45:40Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:47:47Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:48:04Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:52:01Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:53:24Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:53:36Z"
+    },
+    {
+      "sid": "02-03",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:57:53Z"
+    },
+    {
+      "sid": "02-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T17:59:47Z"
+    },
+    {
+      "sid": "02-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:00:01Z"
+    },
+    {
+      "sid": "02-04",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:02:39Z"
+    },
+    {
+      "sid": "02-04",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:03:56Z"
+    },
+    {
+      "sid": "02-04",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:04:07Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:07:27Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:09:58Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:10:09Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:26:08Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:26:45Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:26:58Z"
+    },
+    {
+      "sid": "03-03",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:30:09Z"
+    },
+    {
+      "sid": "03-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:30:36Z"
+    },
+    {
+      "sid": "03-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:30:50Z"
+    },
+    {
+      "sid": "03-04",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:49:30Z"
+    },
+    {
+      "sid": "03-04",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:52:06Z"
+    },
+    {
+      "sid": "03-04",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:52:30Z"
+    },
+    {
+      "sid": "03-05",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T18:59:35Z"
+    },
+    {
+      "sid": "03-05",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T19:02:44Z"
+    },
+    {
+      "sid": "03-05",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T19:02:56Z"
+    },
+    {
+      "sid": "03-06",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T19:15:21Z"
+    },
+    {
+      "sid": "03-06",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T19:18:01Z"
+    },
+    {
+      "sid": "03-06",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T19:18:19Z"
+    },
+    {
+      "sid": "03-07",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T19:31:04Z"
+    },
+    {
+      "sid": "03-07",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T19:34:03Z"
+    },
+    {
+      "sid": "03-07",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-22T19:34:16Z"
+    },
+    {
+      "sid": "03-08",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T18:10:14Z"
+    },
+    {
+      "sid": "03-08",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T18:12:02Z"
+    },
+    {
+      "sid": "03-08",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T18:12:23Z"
+    }
+  ],
+  "gates": [
+    {
+      "gate": "post-merge-integration",
+      "status": "PASS",
+      "environments_tested": [
+        "local-dev",
+        "ci-mirror-local"
+      ],
+      "environments_deferred": [
+        "production (operator prerequisites: Fly app, volume, secrets)"
+      ],
+      "stories_demoed": [
+        "US-001",
+        "US-002",
+        "US-003",
+        "US-004",
+        "US-005",
+        "US-006"
+      ],
+      "timestamp": "2026-07-22T19:05:00Z"
+    }
+  ]
 }

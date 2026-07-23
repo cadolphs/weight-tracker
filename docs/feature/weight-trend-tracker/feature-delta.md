@@ -769,6 +769,16 @@ Accepted residuals (deliberately NOT oracled, per mutation report):
 
 Verified: `test_milestone_5.py` 7 passed (was 5); full acceptance suite 75 passed.
 
+#### AT_GAP-5 (2026-07-23): the human doorway was never specified — found on first real browser visit
+
+Every scenario's "Clemens has unlocked the tracker with his passphrase" Given drove POST /login directly; a locked browser navigation returns bare JSON `{"detail":"locked"}` 401 with no login page. US-001's elevator pitch ("taps the tracker icon → entry screen opens") implies the human journey visit → passphrase door → entry screen, but no AT pinned it — a specification gap at DISTILL, not an implementation slip. Fix: three NEW active scenarios in `access-protection.feature` (chained narrative, browser-flavored steps setting Accept: text/html and following redirects; bindings delegate to new `AccessService.visit_in_browser` / `enter_passphrase_at_door` + door assertions in composition.py):
+
+1. "A locked visit is met by the passphrase door" (@contract-shape:pure-function) — browser GET of the app root while locked → an HTML door page holding a passphrase form submitting to the login door, not raw JSON.
+2. "The passphrase door opens onto the entry screen" (@contract-shape:bounded-change) — correct passphrase via the form → browser lands on the entry screen (redirect to the root, session established), record open.
+3. "A wrong passphrase keeps the door shut but polite" (@contract-shape:unbounded-preservation) — wrong passphrase → the door again with a visible rejection, record still hidden.
+
+RED evidence (fail-for-the-right-reason, all `AssertionError` at Then — MISSING_FUNCTIONALITY): (1) `not 'application/json': '{"detail":"locked"}'`; (2) `stayed at '/login'` (no redirect); (3) `not 'application/json': '{"detail":"wrong passphrase"}'`. Non-HTML/API behavior deliberately preserved: existing locked-JSON-401 scenarios untouched and green — full suite minus the three new REDs = **83 passed**. Crafter greens these three in DELIVER; no production change made at DISTILL.
+
 ## Wave: DELIVER / [REF] Demo Evidence
 
 Post-merge integration gate (Phase 3.5), 2026-07-22. Real server: `uvicorn weight_tracker.main:app` with production env contract (`PASSPHRASE_HASH`, `SESSION_SIGNING_KEY`, `DB_PATH`), fresh SQLite, real HTTP via curl. All exit codes 0 / HTTP 200 unless stated.
