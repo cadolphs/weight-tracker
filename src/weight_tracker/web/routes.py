@@ -178,14 +178,19 @@ def _unlocked_response(wants_page: bool) -> Response:
     return JSONResponse({"status": "unlocked"})
 
 
+def _log_structured(entry: dict[str, Any]) -> None:
+    """One structured line on stderr: the operational trail transport (ADR-003)."""
+    print(json.dumps(entry), file=sys.stderr)
+
+
 def _log_auth_event(name: str) -> None:
     """Structured auth trail: auth.login.{ok,rejected,rate_limited} (ADR-003)."""
-    print(json.dumps({"event": name}), file=sys.stderr)
+    _log_structured({"event": name})
 
 
 def _log_glance_degraded(failure: Exception) -> None:
     """Structured degrade trail: the glance failed and was hidden, never silently."""
-    print(json.dumps({"event": "trend.glance.degraded", "error": str(failure)}), file=sys.stderr)
+    _log_structured({"event": "trend.glance.degraded", "error": str(failure)})
 
 
 def build_router(
