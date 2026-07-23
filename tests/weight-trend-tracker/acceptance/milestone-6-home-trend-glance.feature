@@ -23,7 +23,7 @@ Feature: Where you stand, at a glance
     Then he sees the confirmation "Saved: 82.1 kg — Thu 23 Jul"
     And the glance refreshes in place with the save
 
-  @pending @driving_port @US-007 @contract-shape:pure-function
+  @driving_port @US-007 @contract-shape:pure-function
   Scenario: Where-am-I and which-way are answered in one glance
     Given his weight has been falling for the last two weeks
     When he opens the entry screen
@@ -41,7 +41,7 @@ Feature: Where you stand, at a glance
     And the glance refreshes in place with the save
     And the weekly rate is the line's own change over the last week
 
-  @pending @driving_port @US-007 @contract-shape:pure-function
+  @driving_port @US-007 @contract-shape:pure-function
   Scenario Outline: Every direction is information, never judgment
     Given his weight has been <direction> for the last two weeks
     When he opens the entry screen
@@ -54,7 +54,7 @@ Feature: Where you stand, at a glance
       | rising    | ↑     |
       | steady    | →     |
 
-  @pending @driving_port @US-007 @contract-shape:pure-function
+  @driving_port @US-007 @contract-shape:pure-function
   Scenario: Standing still is reported plainly
     Given his record holds a steady 82.0 kg from 8 July 2026 to 22 July 2026
     When he opens the entry screen
@@ -62,7 +62,7 @@ Feature: Where you stand, at a glance
     And the glance line reads a weekly rate of "0.00 kg/week"
     And the direction glyph reads "→"
 
-  @pending @driving_port @error @US-007 @contract-shape:pure-function
+  @driving_port @error @US-007 @contract-shape:pure-function
   Scenario Outline: A young record holds its tongue about the rate
     # Span is ENTRY-based (latest - earliest ENTRY date, D-12/ADR-006), so the
     # boundary rows log an entry ON the boundary day itself.
@@ -77,7 +77,7 @@ Feature: Where you stand, at a glance
       | 17 July 2026 | 23 July 2026 | held back        |
       | 16 July 2026 | 23 July 2026 | shown            |
 
-  @pending @driving_port @error @US-007 @contract-shape:pure-function
+  @driving_port @error @US-007 @contract-shape:pure-function
   Scenario: A resting record still reports where its line ends
     # Entry-based span (15 days) though the last entry is a week old: the rate
     # stays, and the glanced value is the line's END (16 July), same as the graph.
@@ -86,7 +86,7 @@ Feature: Where you stand, at a glance
     Then the trend and weekly rate are both shown at a glance
     And the glanced trend is where the graph's trend line ends
 
-  @pending @driving_port @error @US-007 @contract-shape:bounded-change
+  @driving_port @error @US-007 @contract-shape:bounded-change
   Scenario: An empty record shows no trend line until the first save brings one
     Given he has seen the entry screen without a trend line
     When he logs "82.5" for today
