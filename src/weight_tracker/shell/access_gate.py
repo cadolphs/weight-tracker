@@ -20,11 +20,13 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import argon2
 from argon2.exceptions import VerifyMismatchError
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, Signer
 
 from weight_tracker.ports import ClockPort
@@ -38,6 +40,33 @@ OPEN_PATHS = frozenset({"/login", "/healthz"})
 
 THROTTLE_AFTER_WRONG_GUESSES = 10
 THROTTLE_COOLDOWN = timedelta(minutes=15)
+
+
+# ---------------------------------------------------------------- the passphrase door
+
+#: The gate's human face (AT_GAP-5): a locked browser navigation is met by this
+#: page rather than a bare machine refusal. API clients keep the JSON contract.
+_door_templates = Jinja2Templates(directory=Path(__file__).parent.parent / "web" / "templates")
+
+WRONG_PASSPHRASE_MESSAGE = "Wrong passphrase — the record stays closed."
+THROTTLED_MESSAGE = "Too many attempts — the door rests a while. Try again later."
+
+
+def prefers_html(request: Request) -> bool:
+    """A human page navigation announces itself with Accept: text/html."""
+    return "text/html" in request.headers.get("accept", "")
+
+
+def door_page(
+    request: Request, *, rejection: str | None = None, status_code: int = 401
+) -> Response:
+    """Render the passphrase door: a label + password form submitting back to /login."""
+    return _door_templates.TemplateResponse(
+        request=request,
+        name="door.html",
+        context={"rejection": rejection},
+        status_code=status_code,
+    )
 
 
 # ---------------------------------------------------------------- pure core
@@ -150,4 +179,6 @@ def install_access_gate(app: FastAPI, gate: AccessGate, clock: ClockPort) -> Non
             return await call_next(request)
         if gate.session_open(request.cookies.get(SESSION_COOKIE), now=clock.now_utc()):
             return await call_next(request)
+        if prefers_html(request):
+            return door_page(request)
         return JSONResponse({"detail": "locked"}, status_code=401)

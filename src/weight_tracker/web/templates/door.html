@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weight Tracker</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <style>
+    /* Mobile-first: comfortable half-awake touch targets (>= 44px). */
+    input, button { min-height: 44px; font-size: 1rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Unlock your record</h1>
+    {% if rejection %}
+    <p id="door-rejection" role="alert">{{ rejection }}</p>
+    {% endif %}
+    <form method="post" action="/login">
+      <label for="passphrase">Passphrase</label>
+      <input id="passphrase" name="passphrase" type="password"
+             autocomplete="current-password" autofocus>
+      <button type="submit">Unlock</button>
+    </form>
+  </main>
+</body>
+</html>

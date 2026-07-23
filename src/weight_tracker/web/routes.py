@@ -24,7 +24,7 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from weight_tracker.core.types import (
@@ -43,9 +43,13 @@ from weight_tracker.ports import ClockPort, EntryStorePort
 from weight_tracker.shell.access_gate import (
     SESSION_COOKIE,
     SESSION_MAX_AGE_SECONDS,
+    THROTTLED_MESSAGE,
+    WRONG_PASSPHRASE_MESSAGE,
     AccessGate,
     Throttled,
     Unlocked,
+    door_page,
+    prefers_html,
 )
 from weight_tracker.shell.access_gate import (
     Rejected as PassphraseRejected,
@@ -147,6 +151,14 @@ def _kpi_week_start(today: date) -> date:
     return week_start if week_start is not None else today  # None is ALL-only, 1W is bounded
 
 
+def _unlocked_response(wants_page: bool) -> Response:
+    """Success has two faces: the browser is sent home to the entry screen (303
+    See Other, so the form POST becomes a GET); API clients get the JSON receipt."""
+    if wants_page:
+        return RedirectResponse("/", status_code=303)
+    return JSONResponse({"status": "unlocked"})
+
+
 def _log_auth_event(name: str) -> None:
     """Structured auth trail: auth.login.{ok,rejected,rate_limited} (ADR-003)."""
     print(json.dumps({"event": name}), file=sys.stderr)
@@ -165,19 +177,28 @@ def build_router(
     router = APIRouter()
 
     @router.post("/login")
-    async def login(request: Request) -> JSONResponse:
+    async def login(request: Request) -> Response:
+        """The login door serves both clients: a browser form submit (Accept:
+        text/html) is answered with pages -- 303 home on success, the door page
+        re-rendered on rejection; API clients keep the JSON contract. The
+        AccessGate judges; this route only phrases the verdict per client."""
         form = parse_qs((await request.body()).decode())
         passphrase = form.get("passphrase", [""])[0]
+        wants_page = prefers_html(request)
         match gate.attempt_login(passphrase, now=clock.now_utc()):
             case Throttled():
                 _log_auth_event("auth.login.rate_limited")
+                if wants_page:
+                    return door_page(request, rejection=THROTTLED_MESSAGE, status_code=429)
                 return JSONResponse({"detail": "too many attempts"}, status_code=429)
             case PassphraseRejected():
                 _log_auth_event("auth.login.rejected")
+                if wants_page:
+                    return door_page(request, rejection=WRONG_PASSPHRASE_MESSAGE, status_code=401)
                 return JSONResponse({"detail": "wrong passphrase"}, status_code=401)
             case Unlocked(session_token=session_token):
                 _log_auth_event("auth.login.ok")
-                response = JSONResponse({"status": "unlocked"})
+                response = _unlocked_response(wants_page)
                 response.set_cookie(
                     SESSION_COOKIE,
                     session_token,
