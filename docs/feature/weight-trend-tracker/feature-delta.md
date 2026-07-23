@@ -785,3 +785,49 @@ Post-merge integration gate (Phase 3.5), 2026-07-22. Real server: `uvicorn weigh
 Environment matrix outcome: `local-dev` PASS (75 tests + ruff/format/mypy-strict/import-linter green); `ci` mirrored locally with identical tools PASS (workflows land with this wave — first CI run occurs on push); `production` NOT EXERCISED from this machine — Fly app/volume/secrets are documented operator prerequisites (step 01-04 report; DA-3); startup is self-gating (`health.startup.refused`) and the deploy pipeline's smoke stage covers first contact.
 
 Demo finding (minor, logged): `GET /entries?scale=All` (wrong casing, hand-typed URL only — UI buttons send `ALL`) returns 500 instead of a 4xx; unhandled `ValueError` in `TimeScale(scale)`. Routed to adversarial review for severity judgment.
+
+## Wave: DELIVER / [REF] Implementation Summary
+
+DELIVER wave executed 2026-07-22..23 by nw-deliver orchestrator + nw-functional-software-crafter (ADR-005 paradigm). Shipped the complete weight-trend-tracker application: FastAPI shell over a pure functional core (validation railway with closed RejectionReason set; Kalman+RTS trend per ADR-004 with pinned constants), SQLite EntryStore with earned-trust startup probes + schema-version rollback guard, passphrase AccessGate (argon2id, signed 90-day cookie judged via injected ClockPort, in-process throttle), server-rendered mobile-first UI with vendored uPlot (raw/trend lenses, shared time scale), PWA manifest + app-shell service worker, KPI telemetry (entry_ms, trend_view_opened, /stats query surface), and the full deploy rail (Dockerfile with Litestream 0.3.13 supervisor, fly.toml, CI gates→deploy→smoke pipeline, weekly restore drill, pre-commit/pre-push configs, import-linter contract). 15 roadmap steps, all RED→GREEN→COMMIT through DES.
+
+## Wave: DELIVER / [REF] Scenarios Green Count
+
+**49 of 49 Gherkin scenarios green** (75 acceptance test instances after outline expansion and DELIVER-era oracle additions, incl. 14 PBT properties) plus 8 crafter-authored integration tests = **83 passed, 0 skipped, 0 failed** at HEAD `cf6e199`, 2026-07-23. `@pending` discipline fully unwound — no scenario remains skipped.
+
+## Wave: DELIVER / [REF] Files Modified
+
+Production (src): composition.py, main.py (new), ports.py, core/{types,validation,trend}.py, shell/{access_gate (new), clock, entry_store, telemetry_store (new)}.py, web/{routes.py (new), templates/{index,graph}.html (new), static/{uplot.iife.min.js, uplot.min.css, sw.js, icon.svg} (new)}.
+Infrastructure: Dockerfile, fly.toml, .github/workflows/{ci-deploy,restore-drill}.yml, .pre-commit-config.yaml, pyproject.toml (dev deps + ruff/mypy/import-linter config), scripts/check_probe_presence.py, .env.example, uv.lock.
+Tests: all 7 .feature files activated; steps/ bindings extended (AT_GAP fixes); properties/ oracles recalibrated (AT_GAP-1); tests/weight-trend-tracker/integration/{test_schema_version_guard,test_scale_param_robustness}.py (new); tests/common/state_delta.py.
+Docs: feature-delta.md (this file), deliver/{roadmap,execution-log}.json, deliver/mutation/mutation-report.md.
+
+## Wave: DELIVER / [REF] DoD Check
+
+| # | DoD item (DISCUSS) | Status |
+|---|---|---|
+| 1 | All UAT scenarios green (automated) | PASS — 49/49 |
+| 2 | Supporting unit/integration tests green | PASS — 14 PBT + 8 integration |
+| 3 | Code refactored; no obvious debt | PASS — per-step + Phase 3 L1-L6 pass |
+| 4 | Code reviewed | PASS — adversarial review APPROVED after 1 revision (D1) |
+| 5 | Merged to main | PASS — trunk-based, all commits on main |
+| 6 | Deployed to production URL | **BLOCKED (operator)** — Fly app/volume/secrets not yet created; CI deploys on push once present |
+| 7 | Dogfooded same day with real entry | **BLOCKED (operator)** — follows first deploy |
+| 8 | KPI instrumentation emitting | PASS — verified live in demo (entry_ms, trend_view_opened, /stats) |
+| 9 | Story demonstrable end-to-end | PASS — demo evidence above; on-phone demo follows deploy |
+
+## Wave: DELIVER / [REF] Quality Gates
+
+| Phase | Outcome |
+|---|---|
+| Roadmap + review | Approved (49/49 scenario coverage, 0 orphans); +1 late step 03-07 for DEVOPS pre-req 2a |
+| Steps 01-01..03-07 | 15/15 COMMIT/PASS; DES integrity: all 15 complete traces (exit 0) |
+| Post-merge integration (3.5) | PASS — local-dev + ci-mirror; demos for US-001..006; production env deferred to operator |
+| Refactoring (Phase 3) | PASS — light pass; probe-presence hook green |
+| Adversarial review (Phase 4) | APPROVED — 1 blocking defect (scale param 500) fixed + verified |
+| Mutation (Phase 5, per-feature) | PASS — closing run 82.5% effective (≥80%); 5 residual oracle-sized gaps documented in mutation-report.md |
+| Static gates | ruff, ruff format, mypy --strict, import-linter (core-pure), probe-presence: all green |
+
+## Wave: DELIVER / [REF] Pre-Requisites
+
+Depended on: DISTILL .feature files + PBT properties (authoritative spec; 4 oracle defects found and fixed during DELIVER — AT_GAP-1..4), DESIGN component manifest (brief.md § Component Decomposition — no unauthorized components; access_gate/routes/templates/telemetry_store all sanctioned), ADR-001..005, DEVOPS pipeline outline + pre-requisites 1-6 (all implemented; 2a via late step 03-07).
+Outstanding operator prerequisites for first deploy: create Fly app + 1 GB volume `data`; `fly secrets set PASSPHRASE_HASH SESSION_SIGNING_KEY REPLICA_URL LITESTREAM_ACCESS_KEY_ID LITESTREAM_SECRET_ACCESS_KEY`; GitHub secrets `FLY_API_TOKEN`, `R2_REPLICA_URL`, `R2_READONLY_*`; add a git remote and push (no remote configured at finalize time).

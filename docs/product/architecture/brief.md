@@ -102,3 +102,7 @@ Dockerfile: `litestream replicate -exec "uvicorn app:asgi"` (supervisor pattern)
 | [ADR-003](adr-003-passphrase-auth.md) | Passphrase auth via argon2 + signed cookie |
 | [ADR-004](adr-004-trend-algorithm.md) | Trend = local-level Kalman filter + RTS smoother (Huberized) |
 | [ADR-005](adr-005-functional-core-paradigm.md) | Functional Core / Imperative Shell paradigm |
+
+### Component Inventory (shipped — DELIVER 2026-07-23)
+
+All components from the decomposition table above shipped; none deferred. DELIVER-era additions within the sanctioned layout: `main.py` (production entrypoint, env-driven wiring), `shell/telemetry_store.py` (read-model queries over the shared `events` table), schema-version rollback guard in `shell/entry_store.py` + composition (DEVOPS pre-req 2a), `core/types.py:parse_time_scale` (total scale parser; hostile query input → 400), `scripts/check_probe_presence.py` (AST probe-presence gate). Trend uncertainty band (DESIGN OpenQ-5) not rendered — deferred, optional.

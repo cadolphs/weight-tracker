@@ -162,3 +162,20 @@ at_scenario_links:
       - "pure-core PBT: test_a_fixed_entry_set_always_renders_an_identical_line (properties/test_trend_math_properties.py)"
     measurement_window: every push (CI)
     gate: hard
+
+baselines:
+  # Recorded at DELIVER completion (2026-07-23). Production not yet deployed
+  # (operator prerequisites pending) — instrumentation verified live against a
+  # local production-composition server; real baselines to be recorded at GA/first dogfood.
+  - kpi: KPI-1
+    status: instrumentation-verified
+    evidence: "demo entry_ms=4200 -> /stats speed{median_ms:4200, p90_ms:4200.0, sample_count:1}"
+  - kpi: KPI-2
+    status: instrumentation-verified
+    evidence: "entries persisted with device-local date; adherence derivable from entries table"
+  - kpi: KPI-3
+    status: instrumentation-verified
+    evidence: "demo trend open -> trend_views_this_week:1"
+  - kpi: KPI-4
+    status: manual
+    evidence: "day-30 checklist after Slice 04 ships to production"

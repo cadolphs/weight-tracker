@@ -1,0 +1,414 @@
+{
+  "roadmap": {
+    "project_id": "weight-trend-tracker",
+    "created_at": "2026-07-22T16:56:10Z",
+    "total_steps": 15
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Walking skeleton, pure core, and deploy rail",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Walking skeleton: morning weigh-in through production composition root",
+          "description": "First RED-to-GREEN vertical: login, save 82.4 kg, confirmation, history read-back \u2014 real HTTP (TestClient) over build_app with real SQLite on tmp_path. Establishes wire-probe-serve invariant, minimal validation happy path, entry upsert, and page shell.",
+          "criteria": [
+            "Walking-skeleton scenario green through production build_app: real HTTP, real SQLite",
+            "Save confirms 'Saved: 82.4 kg \u2014 Tue 21 Jul'; entry appears at top of history",
+            "Composition root wires, probes all driven adapters, then serves; any probe failure refuses start with health.startup.refused",
+            "Domain core imports nothing from shell/adapters (import-linter contract holds)"
+          ],
+          "estimate": "4h",
+          "deps": [],
+          "files_to_modify": [
+            "src/weight_tracker/composition.py",
+            "src/weight_tracker/ports.py",
+            "src/weight_tracker/core/types.py",
+            "src/weight_tracker/core/validation.py",
+            "src/weight_tracker/shell/entry_store.py",
+            "src/weight_tracker/shell/clock.py",
+            "src/weight_tracker/shell/access_gate.py",
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/"
+          ],
+          "implementation_notes": "WS is RED by default; unskip nothing else. Minimal AccessGate unlock (scenario logs in via passphrase) and minimal validation \u2014 full semantics land in later steps. EntryStore probe per brief.md: integrity_check, WAL+FULL asserted, sentinel write\u2192fsync\u2192readback, statfs \u2260 tmpfs. Route contract = build_app docstring. Crafter owns internal structure (ADR-005 functional core / imperative shell).\n\nTEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest.\n\nSTAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. See nw-tdd-methodology::Paradigm Mandate for the full debt-payoff framing.",
+          "test_file": "tests/weight-trend-tracker/acceptance/walking-skeleton.feature",
+          "scenario_name": "Morning weight is captured in seconds and lands in the record"
+        },
+        {
+          "id": "01-02",
+          "name": "Pure validation core greens its property suite",
+          "description": "Implement pure validation and upsert-resolution functions (range 30.0\u2013250.0, 0.1 precision, skew-bound dates, closed rejection-reason set, apply_entry) until all 7 DISTILL validation properties pass.",
+          "criteria": [
+            "All 7 validation properties green: boundary acceptance/rejection, hostile-input safety, skew-bound dates, upsert replace/idempotency",
+            "Hostile input never crashes; rejection reasons form the closed set",
+            "apply_entry is pure over frozen types; state-delta universe holds (only the target date's row changes)"
+          ],
+          "estimate": "2h",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/core/types.py",
+            "src/weight_tracker/core/validation.py"
+          ],
+          "implementation_notes": "Pure-function contract shape (return-only); no I/O, no clock access \u2014 'today' is a parameter. Skew rule: client date \u2264 server UTC date + 1. Unskip only these 7 property tests. EXEMPT FROM PARADIGM: DISTILL-authored PBT properties are the unit-level coverage for this step.",
+          "test_file": "tests/weight-trend-tracker/acceptance/properties/test_validation_properties.py",
+          "scenario_name": "test_every_plausible_tenth_precision_weight_is_accepted, test_every_out_of_range_weight_is_rejected, test_hostile_input_never_crashes_and_reasons_form_a_closed_set, test_dates_are_accepted_exactly_up_to_the_device_skew_bound, test_unparseable_dates_are_rejected_never_crashing, test_apply_entry_replaces_never_duplicates_and_touches_nothing_else, test_apply_entry_is_idempotent"
+        },
+        {
+          "id": "01-03",
+          "name": "Pure trend core greens its property suite",
+          "description": "Implement Kalman forward + RTS backward smoother on the daily grid (ADR-004: R=0.20, q=R\u00b7\u03b1\u00b2/(1\u2212\u03b1) with \u03b1=0.10, Huber \u03b4=1.0, missing day = predict-only) until all 7 DISTILL trend properties pass.",
+          "criteria": [
+            "All 7 trend properties green with ADR-004 constants pinned in core/trend.py",
+            "Determinism and entry-order invariance; daily-grid coverage from first to last entry",
+            "Single-day +1.5 kg spike moves trend \u22640.3 kg; Huber bounds outliers of any magnitude",
+            "Gap crossed with bounded daily steps; 0.5 kg/week decline visible within 7 days"
+          ],
+          "estimate": "4h",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/core/types.py",
+            "src/weight_tracker/core/trend.py"
+          ],
+          "implementation_notes": "Pure-function contract shape: trend_series(entries) -> [TrendPoint], full O(n) recompute per call, derived-never-stored. No parameter re-estimation \u2014 constants are versioned. Unskip only these 7 property tests. EXEMPT FROM PARADIGM: DISTILL-authored PBT properties are the unit-level coverage for this step.",
+          "test_file": "tests/weight-trend-tracker/acceptance/properties/test_trend_math_properties.py",
+          "scenario_name": "test_a_fixed_entry_set_always_renders_an_identical_line, test_entry_order_never_changes_the_line, test_trend_covers_every_day_from_first_to_last_entry, test_a_single_day_spike_of_1_5kg_moves_the_trend_at_most_0_3kg, test_huber_clipping_bounds_an_outlier_of_any_magnitude, test_the_current_line_crosses_a_gap_with_bounded_daily_steps, test_a_sustained_half_kilo_per_week_decline_is_visible_within_7_days"
+        },
+        {
+          "id": "01-04",
+          "name": "Deploy rail: Dockerfile, Fly, CI/CD pipeline, local gates",
+          "type": "infrastructure",
+          "description": "Ship the walking skeleton to production per DEVOPS Pre-Requisite 6: Docker image with Litestream supervisor, fly.toml, GitHub Actions pipeline (gates \u2192 deploy \u2192 smoke, plus weekly restore drill), pre-commit/pre-push hooks, import-linter contract.",
+          "criteria": [
+            "Dockerfile pins litestream 0.3.13 exactly; runs `litestream replicate -exec` uvicorn supervisor; volume at /data",
+            "Workflows: push-to-main runs ruff/mypy/import-linter/pytest, fly deploy on green (concurrency-serialized), /healthz smoke; weekly restore-drill job with drill-state artifact",
+            "Pre-commit (ruff + probe-presence AST hook) and pre-push (ruff, mypy, import-linter, pytest) configured; chained with existing nWave hooks, never overwriting",
+            "import-linter contract: core imports nothing from shell/adapters",
+            "Workflow YAML syntax-checked; no secrets in repo (Fly/GitHub secrets only)"
+          ],
+          "estimate": "3h",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "Dockerfile",
+            "fly.toml",
+            ".github/workflows/ci-deploy.yml",
+            ".github/workflows/restore-drill.yml",
+            ".pre-commit-config.yaml",
+            "pyproject.toml"
+          ],
+          "implementation_notes": "Follow feature-delta DEVOPS CI/CD Pipeline Outline verbatim: fail-fast stages, concurrency group production-deploy, restore drill with drill-state.json artifact (90-day retention, monthly PITR variant). Coexistence matrix rules apply (hook chaining, volume survives redeploys). EXEMPT FROM PARADIGM: ships deploy config/CI text, not application code. Compensate with structural verification: CI workflow syntax-checked, Dockerfile pins litestream 0.3.13, probe-presence AST hook configured.",
+          "test_file": "",
+          "scenario_name": ""
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Guarded capture: access protection and daily logging",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Passphrase gate: unlock, reject, guard, throttle",
+          "description": "Full AccessGate login semantics (ADR-003): argon2id verify against PASSPHRASE_HASH, signed HttpOnly cookie, all data routes guarded for reads and writes, login rate-limited. 5 scenarios.",
+          "criteria": [
+            "Correct passphrase opens the record; signed HttpOnly cookie issued",
+            "Wrong or absent passphrase: record pages hidden, nothing readable",
+            "Save attempts while locked are rejected; store unchanged",
+            "Repeated wrong guesses are throttled (in-process rate limiter)"
+          ],
+          "estimate": "3h",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/shell/access_gate.py",
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/",
+            "src/weight_tracker/composition.py"
+          ],
+          "implementation_notes": "AccessGate contract shape: read-only per request. Startup probe: PASSPHRASE_HASH + SESSION_SIGNING_KEY present and parseable, else health.startup.refused. Unskip only this step's 5 scenarios.\n\nTEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest.\n\nSTAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. See nw-tdd-methodology::Paradigm Mandate for the full debt-payoff framing.",
+          "test_file": "tests/weight-trend-tracker/acceptance/access-protection.feature",
+          "scenario_name": "The right passphrase opens his record, A wrong passphrase keeps the record closed, Without the passphrase the record stays hidden, Without the passphrase nothing can be added to the record, Repeated wrong guesses are throttled"
+        },
+        {
+          "id": "02-02",
+          "name": "Session lifetime and operational health",
+          "description": "90-day session expiry judged via injected ClockPort (89 days pass, 91 days re-prompt), unauthenticated /healthz, and probe-refusal behavior when the store cannot persist safely. 4 scenarios.",
+          "criteria": [
+            "Session still valid at 89 days; passphrase re-asked at 91 days (injected clock, no sleeps)",
+            "/healthz answers without the passphrase, exposes no data, reports probe and replication status",
+            "Unwritable store: probe fails, health.startup.refused emitted, no traffic served"
+          ],
+          "estimate": "2h",
+          "deps": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/shell/access_gate.py",
+            "src/weight_tracker/shell/entry_store.py",
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/composition.py"
+          ],
+          "implementation_notes": "Session expiry MUST consult ClockPort, never wall clock (DISTILL testability contract for the 89/91-day scenarios). The refusal scenario is @real-io: probe failure on an unwritable home directory. Unskip only this step's 4 scenarios.\n\nTEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest.\n\nSTAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. See nw-tdd-methodology::Paradigm Mandate for the full debt-payoff framing.",
+          "test_file": "tests/weight-trend-tracker/acceptance/access-protection.feature",
+          "scenario_name": "An unlock lasts across seasons, After three months the passphrase is asked again, The tracker's health can be checked without the passphrase, A record that cannot be stored safely refuses to open"
+        },
+        {
+          "id": "02-03",
+          "name": "Entry validation surfaced inline on the entry screen",
+          "description": "Wire the pure validation core through the entry route and template: boundary outlines (29.9/30.0/250.0/250.1/824/8.2), sub-precision rejection, non-numeric and empty input safety, corrective inline messaging. 6 scenarios (10 instances).",
+          "criteria": [
+            "30.0 and 250.0 accepted; 29.9, 250.1, 824, 8.2 rejected inline with the range message",
+            "Sub-0.1 kg precision rejected, never silently rounded",
+            "Non-weight and empty inputs rejected safely; nothing stored",
+            "Rejected submissions keep the user's input for correction"
+          ],
+          "estimate": "3h",
+          "deps": [
+            "01-02",
+            "02-01"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/",
+            "src/weight_tracker/core/validation.py"
+          ],
+          "implementation_notes": "Shell translates the core's closed RejectionReason set into inline messages; no validation logic in routes (functional core owns rules). Unskip only this step's 6 scenarios.\n\nTEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest.\n\nSTAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. See nw-tdd-methodology::Paradigm Mandate for the full debt-payoff framing.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-1-log-todays-weight.feature",
+          "scenario_name": "An implausible typo is caught before it pollutes the record, Values outside the plausible range are rejected, Values at the edge of plausibility are accepted, A finer-than-scale value is rejected rather than silently rounded, Something that is not a weight is rejected safely, Empty submit does nothing destructive"
+        },
+        {
+          "id": "02-04",
+          "name": "One-per-day persistence: replace, restart durability, device day",
+          "description": "Persistence semantics of the daily record: re-save upserts, confirmed saves survive a fresh composition over the same SQLite file, and a 00:10 log belongs to the phone's new day. 3 scenarios.",
+          "criteria": [
+            "Re-saving today replaces: the day holds exactly one entry with the latest value",
+            "Confirmed entry readable after restart via fresh composition on the same file (WAL + synchronous=FULL)",
+            "A log just after midnight is attributed to the device-local new day"
+          ],
+          "estimate": "2h",
+          "deps": [
+            "02-03"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/shell/entry_store.py",
+            "src/weight_tracker/core/validation.py",
+            "src/weight_tracker/composition.py"
+          ],
+          "implementation_notes": "WeightLogging is bounded-change: mutation universe = single {date} row plus one telemetry event; nothing else changes. Restart scenario is @real-io @adapter-integration \u2014 same file, fresh build_app. Unskip only this step's 3 scenarios.\n\nTEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest.\n\nSTAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. See nw-tdd-methodology::Paradigm Mandate for the full debt-payoff framing.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-1-log-todays-weight.feature",
+          "scenario_name": "Re-saving today replaces rather than duplicates, A confirmed save survives a restart, A log just after midnight belongs to the phone's new day"
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "History, trend, and five-second polish",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Raw history graph with selectable time scales",
+          "description": "Graph page with uPlot: raw entries plotted in kg, scales 1W/1M/3M/6M/1Y/All with exact window semantics, honest gaps, empty and single-entry states, 2 s readiness budget. 7 scenarios (11 instances).",
+          "criteria": [
+            "Scales selectable; window = last {7,30,91,182,365} days inclusive of today; All spans first entry to today",
+            "Exactly the stored entries plotted; missing days render as gaps \u2014 no zeros, no interpolation",
+            "Empty record invites the first log; a single entry is still readable",
+            "History ready within the 2 s budget (@property, guardrail G-2)"
+          ],
+          "estimate": "4h",
+          "deps": [
+            "02-04"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/",
+            "src/weight_tracker/web/static/",
+            "src/weight_tracker/core/types.py"
+          ],
+          "implementation_notes": "Window filtering is pure core (SCALE_WINDOW_DAYS pinned at DISTILL); shell only renders. WeightHistory port stays read-only \u2014 no write methods. uPlot 1.6 default; swap allowed within the 2 s AC. Unskip only this step's 7 scenarios.\n\nTEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest.\n\nSTAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. See nw-tdd-methodology::Paradigm Mandate for the full debt-payoff framing.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-2-review-history.feature",
+          "scenario_name": "History is readable at the chosen time scale, The full record is one tap away, Missing days stay honest gaps, Each time scale reaches back exactly its window, An empty record invites the first log, A single entry is still a readable record, The history is ready without a wait"
+        },
+        {
+          "id": "03-02",
+          "name": "Backfill and correct past days",
+          "description": "Past-date entry: backfill a forgotten day, correct a typo in place, keep the future closed, apply today's validation rules to past days; graph reflects changes immediately. 4 scenarios.",
+          "criteria": [
+            "Any past date accepts a new entry or replacement; one-entry-per-day invariant holds",
+            "Future dates rejected with a clear message; store unchanged",
+            "Past-day saves validated identically to today (range, precision)",
+            "History and graph reflect backfills/corrections immediately"
+          ],
+          "estimate": "2h",
+          "deps": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/",
+            "src/weight_tracker/core/validation.py"
+          ],
+          "implementation_notes": "Same record_or_replace path as today-entry with an explicit date \u2014 no parallel write path. Deletion out of scope (A7). Unskip only this step's 4 scenarios.\n\nTEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest.\n\nSTAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. See nw-tdd-methodology::Paradigm Mandate for the full debt-payoff framing.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-3-backfill-and-correct.feature",
+          "scenario_name": "A forgotten day is backfilled, A typo from last week is corrected in place, The future stays closed, Past-day validation matches today's rules"
+        },
+        {
+          "id": "03-03",
+          "name": "Date-edge semantics: idempotent re-save and skew bounds",
+          "description": "Edge semantics of the write path: identical re-save changes nothing, client-day skew of +1 accepted / +2 rejected (server sanity bound), unrecognisable dates rejected safely. 4 scenarios.",
+          "criteria": [
+            "Re-saving an identical value changes nothing observable (idempotent)",
+            "Client date one day ahead of server UTC accepted; two days ahead rejected",
+            "Unparseable dates rejected safely with a closed-set reason; nothing stored"
+          ],
+          "estimate": "2h",
+          "deps": [
+            "03-02"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/core/validation.py",
+            "src/weight_tracker/web/routes.py"
+          ],
+          "implementation_notes": "Skew bound is core logic already property-covered (01-02); this step wires it through the HTTP surface with FakeClock-driven scenarios. Unskip only this step's 4 scenarios.\n\nTEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest.\n\nSTAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. See nw-tdd-methodology::Paradigm Mandate for the full debt-payoff framing.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-3-backfill-and-correct.feature",
+          "scenario_name": "Saving the same value again changes nothing, A phone already in tomorrow may log its new day, A date two days ahead is rejected even from a skewed phone, An unrecognisable date is rejected safely"
+        },
+        {
+          "id": "03-04",
+          "name": "Trend view: smoothed line through noise, gaps, and corrections",
+          "description": "TrendProjection wired to the graph: smoothed line over the selected scale from the first entry, spike damping, gap continuity, decline responsiveness, correction recompute, determinism. 6 scenarios.",
+          "criteria": [
+            "Trend line rendered over the selected scale; available from the very first entry",
+            "Sushi-night spike moves the trend \u22640.3 kg; vacation gap crossed with bounded daily steps, no jump",
+            "Sustained 0.5 kg/week decline visible within 7 days; corrections recompute the affected range",
+            "Deterministic: identical entries render an identical line every load (@property, guardrail G-3)"
+          ],
+          "estimate": "4h",
+          "deps": [
+            "01-03",
+            "03-01",
+            "03-02"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/",
+            "src/weight_tracker/web/static/",
+            "src/weight_tracker/core/trend.py",
+            "src/weight_tracker/composition.py"
+          ],
+          "implementation_notes": "TrendProjection port is read-only, derived-never-stored: pure function of the full entry set, full recompute per read (ADR-004). Gap oracle asserts smoothed continuity of the CURRENT line, not immutability of past renders (DESIGN OpenQ-3). Unskip only this step's 6 scenarios.\n\nTEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest.\n\nSTAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. See nw-tdd-methodology::Paradigm Mandate for the full debt-payoff framing.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-4-trend-through-noise.feature",
+          "scenario_name": "A restaurant-night spike is revealed as noise, The trend survives a vacation gap, Real change shows up within a week, Corrections flow into the trend, The trend is deterministic, The trend begins with the very first entry"
+        },
+        {
+          "id": "03-05",
+          "name": "Trend\u2194Raw toggle, default lens, and engagement telemetry",
+          "description": "One-tap view toggle sharing selected_time_scale, Trend as the default lens on open, and the trend_view_opened KPI-3 event persisted append-only and queryable via /stats. 4 scenarios.",
+          "criteria": [
+            "Toggling Trend\u2194Raw preserves the time window both ways; round trip lossless",
+            "Default view on a fresh session is Trend",
+            "Opening the trend persists a trend_view_opened event; counts visible on /stats (@kpi @real-io)"
+          ],
+          "estimate": "2h",
+          "deps": [
+            "03-04"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/",
+            "src/weight_tracker/web/static/",
+            "src/weight_tracker/shell/telemetry_store.py",
+            "src/weight_tracker/composition.py"
+          ],
+          "implementation_notes": "selected_time_scale is shared state across views (journey artifact, MEDIUM risk) \u2014 toggling never resets it. Events table is append-only in the same SQLite DB (DEVOPS Pre-Requisite 5); /stats fields per DISTILL contract (trend_view_opened_count, trend_views_this_week). Unskip only this step's 4 scenarios.\n\nTEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest.\n\nSTAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. See nw-tdd-methodology::Paradigm Mandate for the full debt-payoff framing.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-4-trend-through-noise.feature",
+          "scenario_name": "Toggling preserves the time window, Round trip is lossless, The trend is the default lens, Opening the trend counts toward engagement"
+        },
+        {
+          "id": "03-06",
+          "name": "Five-second entry: PWA install, yesterday anchor, speed report",
+          "description": "Habit-grade speed: instant-typing entry screen (auto-focus, decimal keypad, \u22642 s interactive), yesterday's value as reference with graceful absence, installable PWA manifest + minimal service worker, entry_ms timing persisted and reported on /stats. 5 scenarios.",
+          "criteria": [
+            "Entry screen interactive within 2 s; weight field auto-focused with a decimal keypad",
+            "Yesterday's value shown as reference; first morning degrades gracefully without it",
+            "Manifest + minimal service worker make the tracker installable (app-shell cache only, no offline queueing)",
+            "entry_ms persisted with each save; /stats reports 7-day median/p90 and sample count (@kpi, KPI-1)"
+          ],
+          "estimate": "3h",
+          "deps": [
+            "03-03",
+            "03-05"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/",
+            "src/weight_tracker/web/static/",
+            "src/weight_tracker/shell/telemetry_store.py",
+            "src/weight_tracker/composition.py"
+          ],
+          "implementation_notes": "Final step (milestone-5 last). WeightHistory.yesterday() stays on the read-only port. /stats speed fields per DISTILL contract: speed{median_ms, p90_ms, sample_count}, entry_logged_count. Threshold judgment is human/weekly, not a CI gate (DEVOPS H-003). Unskip only this step's 5 scenarios.\n\nTEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest.\n\nSTAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. See nw-tdd-methodology::Paradigm Mandate for the full debt-payoff framing.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-5-five-second-entry.feature",
+          "scenario_name": "Launch drops him straight into typing, Yesterday anchors today, The first morning has no yesterday to lean on, The tracker can join the phone home screen, A week of timed mornings yields the speed report"
+        },
+        {
+          "id": "03-07",
+          "name": "Schema-version rollback guard (DEVOPS pre-requisite 2a)",
+          "type": "infrastructure-runtime",
+          "description": "DB carries a schema_version table (single-row version + applied_ts log); additive-only migrations applied idempotently at startup before probing; EntryStore probe refuses start (health.startup.refused, probe=entry_store.schema_version) when DB version > highest version the running code knows.",
+          "criteria": [
+            "schema_version table created and populated on first startup; migrations idempotent",
+            "Probe passes when code version >= DB version",
+            "Probe refuses start (StartupRefused, probe=entry_store.schema_version) when DB version > code version",
+            "Covered by adapter integration test over real SQLite (single-example per paradigm rules)"
+          ],
+          "estimate": "1h",
+          "deps": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/shell/entry_store.py",
+            "src/weight_tracker/composition.py",
+            "tests/weight-trend-tracker/integration/test_schema_version_guard.py"
+          ],
+          "implementation_notes": "Roadmap gap discovered at Phase 3.5: DEVOPS Pre-Requisite 2a (feature-delta.md) mandates this runtime enforcement implemented by DELIVER; no DISTILL scenario models it (deployment-level rollback), so the crafter authors the adapter integration test (real SQLite, single-example \u2014 integration tests verify wiring per the test paradigm mandate). EXEMPT FROM PARADIGM at unit level: guard is adapter/probe code; compensated by the integration test.",
+          "test_file": "tests/weight-trend-tracker/integration/test_schema_version_guard.py",
+          "scenario_name": "test_schema_version_guard"
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "src/weight_tracker/"
+    ],
+    "test_directories": [
+      "tests/weight-trend-tracker/",
+      "tests/common/"
+    ],
+    "excluded_patterns": [
+      "__init__.py",
+      "__pycache__/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "approved_at": "2026-07-22T17:10:00Z",
+    "audit_findings": {
+      "scenario_coverage": "49/49",
+      "property_coverage": "14/14",
+      "orphan_scenarios": 0,
+      "sizing_violations": 0,
+      "walking_skeleton_step": "01-01",
+      "dependency_violations": 0,
+      "scenario_name_typos": 0
+    }
+  }
+}

@@ -1,5 +1,68 @@
 # Mutation Report — weight-trend-tracker (per-feature strategy, scoped to modified files)
 
+## Phase 5 closing run — routes.py + telemetry_store.py, full suite (2026-07-23)
+
+- **Tool**: cosmic-ray 8.4.3 (project venv, local distributor); config/session in session scratchpad (`cr-phase5.toml` / `cr-phase5.sqlite`)
+- **Scope**: FULL files (no git filter) — `src/weight_tracker/web/routes.py`, `src/weight_tracker/shell/telemetry_store.py` at HEAD `cf6e199` (includes the AT_GAP oracle back-propagation, the scale-param 400 fix `bc1637a`, and the Phase 3 refactor `17e8377`)
+- **Killers**: full current suite — `pytest -x tests/` (83 tests: 75 acceptance + 8 integration)
+- **Post-run safety**: working tree at HEAD (`git diff --stat -- src/` empty); full suite re-verified GREEN (83 passed)
+
+### Results
+
+| File | Mutants | Killed | Surviving |
+|---|---|---|---|
+| `web/routes.py` | 135 | 83 | 52 |
+| `shell/telemetry_store.py` | 3 | 2 | 1 |
+| **Total** | **138** | **85** | **53** |
+
+| Rate | Value |
+|---|---|
+| Raw kill rate | 85/138 = **61.6%** |
+| Effective (excluding 13 equivalents) | 85/125 = **68.0%** |
+| **Effective (excluding equivalents + 22 accepted residuals) — gate basis** | **85/103 = 82.5% — PASS (>= 80%)** |
+| Informational: also accepting the browser-only `/static` class (12) | 85/91 = 93.4% |
+
+The DISTILL back-propagation oracles measurably closed the 03-06 gaps: the
+yesterday-anchor neighbours scenario killed `weight_on`'s `>=`/`is not` slips, the
+untimed-record scenario killed the empty-speed literals, the two-decimal precision
+outline and week-boundary exclusion killed their targets, and the scale-param 400
+contract (`bc1637a`) pinned `time_scale_or_bad_request` (all its mutants killed,
+including the 400 status literal).
+
+### Equivalent mutants — 13
+
+| Mutation | Count | Why equivalent |
+|---|---|---|
+| `routes.py:113` `float \| None` annotation `BitOr` swaps in `weight_on` | 11 | `from __future__ import annotations` — annotations never evaluated at runtime |
+| `routes.py:170` `[0]` → `[-1]` on the single-element form-value list | 1 | one passphrase value: first == last |
+| `telemetry_store.py:31` `row[0]` → `row[-1]` | 1 | single-column `COUNT(*)` row: index 0 and -1 are the same cell |
+
+### Accepted residuals — 22 (per Phase 5 disposition; counted separately)
+
+| Category | Mutations | Count |
+|---|---|---|
+| `_p90` sandwich looseness | `routes.py:137` single-sample guard (`== 1` → `<`/`<=`, `1` → `0`/`2`) ×4; `:138` singleton index ×2; `:139` `n=10` / `[-1]` / `USub→Invert` ×4 | 10 |
+| `sw.js` browser-only delivery | `routes.py:207` `@router.get("/sw.js")` removed ×1; `:211` `_static_dir / "sw.js"` Path-join swaps ×11 | 12 |
+
+### Genuine survivors — 18 (five underlying gaps), each with the oracle that kills it
+
+| Mutation | Count | Killing oracle |
+|---|---|---|
+| `routes.py:116` `entry.day == day` → `<=` in `weight_on` | 1 | The neighbours oracle kills `>=`/`is not` but not `<=`: entries are newest-first and an exact match exists, so `<=` still lands on yesterday. Kill: a record holding an entry OLDER than yesterday but a GAP at yesterday must show NO yesterday reference (`<=` would surface the older value). |
+| `routes.py:147` `_kpi_week_start` None-narrow flips (`AddNot`, `IsNot→Is`) | 2 | Both collapse the week start to "today". The new week-boundary oracle pins only the EXCLUSION side (8-day-old view not counted). Kill: a trend view opened 2–6 days ago must STILL count toward `trend_views_this_week`. |
+| `routes.py:177` wrong-passphrase login `401` → `400`/`402` | 2 | Access scenarios assert record-hidden (GET /entries → 401), never the login response itself. Kill: POST /login with a wrong passphrase returns exactly 401. |
+| `routes.py:185` session cookie `httponly=True` → `False` | 1 | Kill: the login `Set-Cookie` header contains `HttpOnly` (assertable through TestClient response headers). |
+| `routes.py:284,287` `/static/{asset_name}` route removed / `_static_dir / asset_name` Path-join swaps | 12 | Browser-only vendored-asset delivery, documented since 03-01 (same class as the accepted `sw.js` residual but not yet dispositioned). Kill: one smoke — GET `/static/uplot.iife.min.js` → 200 with non-empty body — retires all 12. |
+
+### Verdict
+
+**PASS — effective kill rate 82.5% (>= 80% gate)** on the disposition basis
+(equivalents + the two accepted-residual categories excluded). The 18 genuine
+survivors collapse into five oracle-sized findings, all test-side; routed to
+`nw-acceptance-designer`. The `/static` smoke alone would retire 12 of the 18.
+
+---
+
 ## Step 03-06 — five-second entry: PWA install, yesterday anchor, speed report (2026-07-22)
 
 - **Tool**: cosmic-ray 8.4.3 (project venv, local distributor); config/session in session scratchpad
