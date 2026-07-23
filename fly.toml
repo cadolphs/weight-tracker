@@ -2,7 +2,7 @@
 # Secrets (never here): PASSPHRASE_HASH, SESSION_SIGNING_KEY, REPLICA_URL,
 # LITESTREAM_ACCESS_KEY_ID, LITESTREAM_SECRET_ACCESS_KEY — set per secret-setup.md.
 
-app = 'weight-tracker'
+app = 'weight-tracker-cadolphs'
 primary_region = 'ewr'
 
 [build]
