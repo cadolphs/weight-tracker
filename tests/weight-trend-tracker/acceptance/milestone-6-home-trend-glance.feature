@@ -93,7 +93,7 @@ Feature: Where you stand, at a glance
     Then the glance appears with his first entry at 82.5 kg and no weekly rate
     And the glance delivery is on the record
 
-  @pending @driving_port @property @kpi @US-007 @contract-shape:pure-function
+  @driving_port @property @kpi @US-007 @contract-shape:pure-function
   Scenario: The glance never taxes the entry
     Given his weight has been falling for the last two weeks
     When he opens the entry screen, watch in hand
@@ -101,7 +101,7 @@ Feature: Where you stand, at a glance
     And the entry screen is ready for immediate typing
     And the entry screen shows the trend at a glance
 
-  @pending @driving_port @error @US-007 @contract-shape:pure-function
+  @driving_port @error @US-007 @contract-shape:pure-function
   Scenario: A trend hiccup hides the glance, not the morning
     Given his weight has been falling for the last two weeks
     And the entry screen shows the trend at a glance
@@ -110,7 +110,7 @@ Feature: Where you stand, at a glance
     Then no trend line is shown
     And the entry screen is ready for immediate typing
 
-  @pending @driving_port @error @US-007 @contract-shape:bounded-change
+  @driving_port @error @US-007 @contract-shape:bounded-change
   Scenario: A trend hiccup never blocks the save
     Given his weight has been falling for the last two weeks
     And the entry screen shows the trend at a glance
@@ -120,7 +120,7 @@ Feature: Where you stand, at a glance
     And today holds exactly one entry of 82.4 kg
     And the save carries no glance to show
 
-  @pending @driving_port @error @US-007 @contract-shape:unbounded-preservation
+  @driving_port @error @US-007 @contract-shape:unbounded-preservation
   Scenario: A rejected save leaves not even a glance behind
     Given his weight has been falling for the last two weeks
     And the entry screen shows the trend at a glance
@@ -129,7 +129,7 @@ Feature: Where you stand, at a glance
     And nothing is stored
     And no glance delivery is recorded for it
 
-  @pending @driving_port @kpi @real-io @adapter-integration @US-007 @contract-shape:bounded-change
+  @driving_port @kpi @real-io @adapter-integration @US-007 @contract-shape:bounded-change
   Scenario: The stats page still tells deliberate study from ambient glances
     Given his record holds an entry for every day from 1 July 2026 to 16 July 2026
     And he starts each of the next 7 mornings at the entry screen

@@ -183,6 +183,11 @@ def _log_auth_event(name: str) -> None:
     print(json.dumps({"event": name}), file=sys.stderr)
 
 
+def _log_glance_degraded(failure: Exception) -> None:
+    """Structured degrade trail: the glance failed and was hidden, never silently."""
+    print(json.dumps({"event": "trend.glance.degraded", "error": str(failure)}), file=sys.stderr)
+
+
 def build_router(
     *,
     store: EntryStorePort,
@@ -196,11 +201,24 @@ def build_router(
 ) -> APIRouter:
     router = APIRouter()
 
+    def glance_or_degrade(entries: Sequence[Entry]) -> GlanceSummary | None:
+        """Shell containment (D-13): a failing glance projection degrades to no
+        glance -- absent line on the render, null on the save -- on BOTH delivery
+        surfaces. The morning entry and the save are never blocked by the trend;
+        the core stays pure and exception-free by contract, so any raise here is
+        an injected/infrastructure fault, logged and swallowed at this boundary."""
+        try:
+            return glance_summary_of(entries)
+        except Exception as failure:
+            _log_glance_degraded(failure)
+            return None
+
     def deliver_glance(entries: Sequence[Entry]) -> str | None:
         """One glance delivery (D-14): the display text when a glance exists, paired
-        with exactly one trend.glance.shown event; None (and no event) with no data.
-        No per-day dedup -- KPI-5 pairing is computed at read time on /stats."""
-        summary = glance_summary_of(entries)
+        with exactly one trend.glance.shown event; None (and no event) with no data
+        or on a degraded computation. No per-day dedup -- KPI-5 pairing is computed
+        at read time on /stats."""
+        summary = glance_or_degrade(entries)
         if summary is None:
             return None
         store.append_event(
@@ -356,7 +374,12 @@ def build_router(
         return {
             "entry_logged_count": store.count_events(ENTRY_SAVED_EVENT),
             "trend_view_opened_count": store.count_events(TREND_VIEW_OPENED_EVENT),
-            "trend_glance_shown_count": store.count_events(TREND_GLANCE_SHOWN_EVENT),
+            # Ambient glance deliveries over the SAME rolling week as the deliberate
+            # trend views beside it (KPI-3/KPI-5 separation read from the real trail);
+            # historical seeding/backdated saves age out of the window by construction.
+            "trend_glance_shown_count": count_events_since(
+                TREND_GLANCE_SHOWN_EVENT, kpi_week_start
+            ),
             "trend_views_this_week": count_events_since(TREND_VIEW_OPENED_EVENT, kpi_week_start),
             "speed": speed_summary(entry_ms_samples_since(ENTRY_SAVED_EVENT, kpi_week_start)),
         }

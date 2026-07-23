@@ -38,10 +38,14 @@
     const feedback = document.getElementById("save-feedback");
 
     // In-place glance refresh (D-13): the saved response carries the glance
-    // recomputed with today's entry -- no reload, no extra fetch.
+    // recomputed with today's entry -- no reload, no extra fetch. A degraded
+    // save (glance null) hides the line: absent, never stale (D-13 pin).
     function refreshGlance(glanceText) {
-      if (glanceText == null) return;
       let glanceLine = document.getElementById("trend-glance");
+      if (glanceText == null) {
+        if (glanceLine) glanceLine.remove();
+        return;
+      }
       if (!glanceLine) {
         glanceLine = document.createElement("p");
         glanceLine.id = "trend-glance";
