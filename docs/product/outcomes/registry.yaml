@@ -104,3 +104,24 @@ outcomes:
   artifact: tests/weight-trend-tracker/acceptance/access-protection.feature
   related: []
   superseded_by: null
+- id: OUT-7
+  kind: operation
+  summary: Glance summary — series-end trend value + trailing-week rate on the entry screen
+  feature: home-trend-display
+  inputs:
+  - shape: entry record (list of {date, weight_kg})
+  output:
+    shape: GlanceSummary {trend_kg, rate_kg_per_week|null} -> display line + trend.glance.shown event
+  keywords:
+  - glance-summary
+  - home-entry-screen
+  - trailing-week-rate
+  - quantize-glyph
+  - save-response-refresh
+  artifact: tests/weight-trend-tracker/acceptance/milestone-6-home-trend-glance.feature
+  related:
+  - OUT-3
+  - OUT-5
+  superseded_by: null
+  # Registered manually at DELIVER finalize (2026-07-23): `nwave-ai outcomes register`
+  # still exits 1 with the mis-packaged schema.json FileNotFoundError (see header note).

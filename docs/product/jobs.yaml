@@ -1,5 +1,5 @@
 schema_version: 1
-updated: "2026-07-21"
+updated: "2026-07-23"
 jobs:
   - id: track-true-weight-trend
     status: validated # problem pre-validated: the user is the sole customer (DISCOVER/DIVERGE skipped)
@@ -21,6 +21,10 @@ jobs:
         when: "I notice I forgot to log yesterday or mistyped a value three days ago"
         i_want_to: "add or correct past days in place"
         so_i_can: "trust that my record and the trend derived from it are accurate"
+      - id: js-4-glance # added 2026-07-23 (home-trend-display): ambient counterpart to js-2-judge
+        when: "I've just stepped off the scale and my eye is still on the entry screen"
+        i_want_to: "see my current trend weight and weekly rate at a glance, without navigating anywhere"
+        so_i_can: "know where I stand and which way I'm moving before pocketing the phone"
     dimensions:
       functional:
         - "Capture one weight value per calendar day, in kg, from a phone, in seconds"
@@ -50,4 +54,4 @@ jobs:
     opportunity_scoring: >
       Skipped per workflow rule: scoring only applies when multiple jobs compete.
       Exactly one job identified; capture/judge/maintain are moments of the same job.
-    features: [weight-trend-tracker]
+    features: [weight-trend-tracker, home-trend-display]

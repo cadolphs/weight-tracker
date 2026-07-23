@@ -1,0 +1,108 @@
+{
+  "schema_version": "3.0",
+  "feature_id": "home-trend-display",
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T19:28:07Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T19:30:46Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T19:31:09Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T19:33:01Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T19:40:23Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T19:40:44Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T19:43:36Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T19:44:29Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T19:44:39Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "RED",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T19:58:32Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T20:00:20Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-07-23T20:00:50Z"
+    }
+  ],
+  "gates": [
+    {
+      "gate": "post-merge-integration",
+      "status": "PASS",
+      "environments_tested": [
+        "local-dev (full suite 112 passed, 0 skipped)",
+        "live-server demo (uvicorn + curl, production env contract)"
+      ],
+      "environments_deferred": [
+        "ci + production (existing pipeline, runs on push to main)"
+      ],
+      "stories_demoed": [
+        "US-007"
+      ],
+      "demo_evidence": "GET / first HTML: <p id=\"trend-glance\">Trend: 83.0 kg · ↓0.10 kg/week</p>; POST /entries response glance: Trend: 82.9 kg · ↓0.10 kg/week; /stats trend_views 0 vs glance_shown 16 (KPI-3 unpolluted)",
+      "timestamp": "2026-07-23T20:06:58Z"
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "roadmap": {
+    "project_id": "home-trend-display",
+    "created_at": "2026-07-23T12:00:00Z",
+    "total_steps": 4
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Glanceable trend on the entry screen (US-007, single slice)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Pure glance core greens its property suite",
+          "description": "Implement the RED-scaffolded pure Domain Core module (core/glance.py): glance(entries) -> GlanceSummary | None, quantize_rate, rate_glyph, per ADR-006, until all 9 DISTILL glance properties pass. No I/O, no clock, no shell imports.",
+          "criteria": [
+            "All 9 glance properties green: determinism, entry-order invariance, value == trend-line END, rate == trailing-week net change, sparse-rate honesty at the 7-day entry span, empty -> None, first entry -> value without rate, pinned quantization grid, glyph from rounded sign",
+            "Glance value equals the last point of the shipped trend_series for the same entry set (single smoothed series, oracle = OUT-5)",
+            "Rate is None below a 7-day ENTRY span (latest - earliest entry date) and present at exactly 7 and beyond; empty record yields no glance",
+            "Quantization is the ADR-006 expression verbatim (round-half-even float ties pinned, including 0.025 -> 0.0); glyph reads → for anything rounding to 0.00, including negative zero",
+            "Domain core imports nothing from shell/adapters (import-linter contract holds)"
+          ],
+          "estimate": "2h",
+          "deps": [],
+          "files_to_modify": [
+            "src/weight_tracker/core/glance.py"
+          ],
+          "implementation_notes": "DESIGN pins honored verbatim: D-12 rate = smoothed[-1] - smoothed[-8] on the daily grid ending at the LAST ENTRY day (span >= 7 days <=> grid >= 8 points, so the lookback is always defined, even across gaps); glance value = series END (where the graph's line ends, not today); quantize = round(rate / 0.05) * 0.05 with built-in round (banker's ties pinned as-is). Pure-function contract shape (return-only); no mutation universe. Module placement is the crafter's call (fold into core/trend.py allowed) but the property suite and acceptance steps import from core.glance -- re-export from there if folded, in the same step. Remove __SCAFFOLD__ when GREEN. EXEMPT FROM PARADIGM: DISTILL-authored PBT properties (Mandate 9, PBT-full layer 1) are the unit-level coverage for this step.",
+          "test_file": "tests/weight-trend-tracker/acceptance/properties/test_glance_properties.py",
+          "scenario_name": "test_a_fixed_entry_set_always_renders_an_identical_glance; test_entry_order_never_changes_the_glance; test_the_glance_value_is_where_the_trend_line_ends; test_the_rate_is_the_lines_own_trailing_week_change; test_the_rate_holds_its_tongue_below_a_seven_day_entry_span; test_an_empty_record_offers_no_glance; test_the_first_entry_already_has_a_trend_value_but_no_rate; test_quantization_snaps_to_the_pinned_0_05_grid; test_the_glyph_follows_the_rounded_sign"
+        },
+        {
+          "id": "01-02",
+          "name": "Walking skeleton: glance rendered with the log and refreshed by the save",
+          "description": "First e2e RED-to-GREEN through the production composition root: GET / renders the glance line in the initial HTML (reusing the already-fetched entries), POST /entries saved responses carry the glance display text for the in-place refresh, the save handler updates the line without a reload, trend.glance.shown appended per delivery, /stats gains trend_glance_shown_count. Covers the enabled walking-skeleton scenario plus the sushi-morning save-refresh (same production surface); unskip the sushi scenario only.",
+          "criteria": [
+            "Entry screen shows the neutral glance element <p id=\"trend-glance\">Trend: {value} kg · {glyph}{rate} kg/week</p> in the first server-rendered HTML whenever a glance exists; identical markup for every direction",
+            "Saved POST /entries responses carry \"glance\": \"<display text>\"; the save handler refreshes the line in place (no reload) to the trend recomputed with today's entry, rate co-revising with the line (RTS co-revision: current pair coherent, prior renders never asserted)",
+            "Each delivery of glance data (GET / render with data, saved response carrying glance) appends exactly one trend.glance.shown event; GET /trend is untouched and still emits trend.view.opened per open",
+            "GET /stats reports trend_glance_shown_count (present even at zero)",
+            "Zero added I/O or HTTP on GET /: glance derived from the entry list already fetched for the yesterday anchor"
+          ],
+          "estimate": "2h",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/index.html",
+            "src/weight_tracker/composition.py"
+          ],
+          "implementation_notes": "D-13 delivery pinned: server-render on GET / + glance field in the POST /entries JSON response; KPI-3 separation is STRUCTURAL -- the glance path never touches GET /trend. D-14 pinned: event name trend.glance.shown, fired per delivery, no per-day dedup (KPI-5 pairing is computed at read time on /stats). Executable HTTP contract = GlanceService docstring in tests/weight-trend-tracker/acceptance/steps/composition.py: value at 0.1 kg, rate as {glyph}{abs:.2f} kg/week (glyph directly prefixes the magnitude, pinned to the AC literal), rate segment absent below the 7-day entry span, element absent with no data. Formatting lives in shell/template, never in core; glance summary injected as a pure callable at the composition root (established functional-DI pattern, routes.py TrendProjection alias precedent) -- no new adapters, no new probes (pure over the already-probed EntryStore). Read-only surface: no write methods on read ports. WeightLogging port untouched -- glance field and event are route-level concerns (bounded-change universe stays one {date} row + entry.saved event + the glance delivery event per the glance-aware capture). Presence-first assertions: steps anchor on the element's presence/absence, so RED here is assertion-RED, not KeyError-BROKEN.\n\nTEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only — document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example — they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest.\n\nSTAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design — surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. See nw-tdd-methodology::Paradigm Mandate for the full debt-payoff framing.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-6-home-trend-glance.feature",
+          "scenario_name": "The morning verdict arrives with the log and survives the save; A sushi-morning spike is defused at the moment of logging"
+        },
+        {
+          "id": "01-03",
+          "name": "Render semantics: directions, sparse honesty, empty record's first glance",
+          "description": "Complete the glance display semantics on the render and first-save surfaces: single-glance coherence with the graph, the three direction glyphs with identical quiet styling, the steady 0.00 case, rate held back below the 7-day entry span (entry-based, boundary rows log ON the boundary day), a resting record reporting its line's end, and the empty record gaining its first glance from the save response. 6 scenario blocks (10 instances). Unskip one at a time.",
+          "criteria": [
+            "The glanced trend value is where the graph's trend line ends and the displayed rate is that line's own trailing-week change, for the same entry set",
+            "Direction glyphs ↓ / ↑ / → render from the rounded rate's sign with identical neutral markup in every direction; a steady record reads a trend with → 0.00 kg/week plainly",
+            "Below a 7-day ENTRY span the trend value shows with no rate segment; at exactly 7 days (entry logged on the boundary day) the rate appears",
+            "A resting record (last entry a week old, 15-day span) still shows both value and rate, the value being the line's END -- same as the graph",
+            "An empty record shows no trend line; after the very first save the glance appears via the save response with that value and no rate, and the delivery lands on the record"
+          ],
+          "estimate": "2h",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/index.html"
+          ],
+          "implementation_notes": "DESIGN pins: entry-based span semantics (D-12: latest - earliest ENTRY date, NOT today-based -- the resting-record scenario is the pin's discriminator: 15-day span, week-old last entry, rate stays, value = series end); glance value = series END at the last entry day; first appearance rides the save response (page had no element at 0 entries -- the save handler must create/show the line, not only update it; also the KPI-5 day-1 pairing case). Rate-absent rendering: no rate segment at all (value-only text), per the young-record outline and GlanceService expected_text oracle. The core already answers all of this from 01-01 -- this step is shell rendering/formatting fidelity plus the first-appearance handler path; most scenarios may green quickly, unskip one at a time and fix the surface each demands.\n\nTEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only — document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example — they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest.\n\nSTAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design — surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. See nw-tdd-methodology::Paradigm Mandate for the full debt-payoff framing.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-6-home-trend-glance.feature",
+          "scenario_name": "Where-am-I and which-way are answered in one glance; Every direction is information, never judgment; Standing still is reported plainly; A young record holds its tongue about the rate; A resting record still reports where its line ends; An empty record shows no trend line until the first save brings one"
+        },
+        {
+          "id": "01-04",
+          "name": "Entry primacy, degrade-to-null, and KPI separation on /stats",
+          "description": "The glance never taxes the morning: entry screen interactive within budget with focus and keypad intact, a failing trend computation hides the line (render) and yields glance null (save) without ever blocking entry or save, a rejected save carries no glance and records no delivery, and /stats keeps deliberate trend views apart from ambient glances (7 home mornings + 2 graph studies -> trend views 2, glance deliveries 7). 5 scenario blocks.",
+          "criteria": [
+            "Entry screen ready within two seconds with the weight field focused and decimal keypad shown, glance present -- the line never receives focus and never delays input readiness",
+            "When the trend computation fails, GET / renders with no glance element and the screen stays ready for immediate typing; no 500s (raise_server_exceptions holds)",
+            "When the trend computation fails, a valid save still confirms and stores exactly one entry; the saved response carries \"glance\": null and no glance delivery is recorded",
+            "A rejected save (e.g. 824) stores nothing, carries NO glance field, and appends no trend.glance.shown event",
+            "After 7 ambient entry-screen mornings and 2 deliberate graph trend views, /stats reads trend views this week 2 and glance deliveries 7 -- KPI-3 unpolluted by construction, glance rows readable back from the real store"
+          ],
+          "estimate": "2h",
+          "deps": [
+            "01-03"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/index.html"
+          ],
+          "implementation_notes": "D-13 degrade pin: failure degrades to glance = null -> absent line; saving is NEVER blocked or delayed by the glance (KPI-1 entry-primacy guardrail). Shell-level containment around the injected glance callable on both delivery surfaces; the core stays pure and exception-free by contract. Save-response null semantics are three-valued and pinned: saved-with-data = display text (+event), saved-degraded = null (no event), rejected = key ABSENT (no event, nothing stored -- unbounded-preservation shape: the record and trail are untouched). D-14: no per-day dedup -- 7 renders = 7 trend.glance.shown rows, read back via the real SQLite trail (@real-io @adapter-integration); GET /trend must remain byte-for-byte untouched (asserted via trend views this week = 2). Deliberate-absence scenarios carry chained Given RED anchors -- do not remove them (red-classification note 2). After GREEN: refactor pass, then per-feature mutation testing (>= 80% kill rate) scoped to core/glance.py + touched routes/template; register OUT-7 (deferred from DISTILL, candidate row in feature-delta) and re-run nwave-ai outcomes check-delta if the CLI is fixed.\n\nTEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only — document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example — they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest.\n\nSTAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design — surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. See nw-tdd-methodology::Paradigm Mandate for the full debt-payoff framing.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-6-home-trend-glance.feature",
+          "scenario_name": "The glance never taxes the entry; A trend hiccup hides the glance, not the morning; A trend hiccup never blocks the save; A rejected save leaves not even a glance behind; The stats page still tells deliberate study from ambient glances"
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "src/weight_tracker/"
+    ],
+    "test_directories": [
+      "tests/weight-trend-tracker/",
+      "tests/common/"
+    ],
+    "excluded_patterns": [
+      "__init__.py",
+      "__pycache__/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "audit_findings": {
+      "scenario_coverage": "13/13 blocks (17 instances)",
+      "property_coverage": "9/9",
+      "orphan_scenarios": 0,
+      "sizing_violations": 0,
+      "walking_skeleton_step": "01-02",
+      "dependency_violations": 0
+    },
+    "approved_at": "2026-07-23",
+    "review_note": "conditionally_approved -> approved after scenario_name fix: exact titles restored, separator changed to semicolon (internal commas in two titles)"
+  }
+}

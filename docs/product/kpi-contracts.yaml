@@ -23,6 +23,17 @@ events:
     fields:
       probe: "name of the failed driven-adapter probe"
       reason: "failure detail"
+  # NOTE (DISTILL 2026-07-23, home-trend-display): canonical on-trail names use the
+  # CODE grammar (dotted): routes.py emits `entry.saved` and `trend.view.opened` for
+  # the two events above; the /stats JSON keys are the snake_case spellings
+  # (entry_logged_count, trend_view_opened_count). New events follow the code grammar.
+  - name: trend.glance.shown
+    emitted: server-side, per glance DELIVERY (each GET / render carrying glance data and
+      each saved POST /entries response carrying glance; never on rejected saves; never
+      from GET /trend — KPI-3 separation is structural, D-13/D-14). No per-day dedup;
+      KPI-5's per-calendar-day pairing is computed at read time from the trail.
+    fields:
+      date: "ISO date (server UTC) of the delivery"
 
 kpis:
   - id: KPI-1
@@ -66,6 +77,26 @@ kpis:
       GROUP BY week ORDER BY week DESC LIMIT 8;
     dashboard: /stats "Trend engagement" card
     alert: none-automated; weekly manual review
+
+  - id: KPI-5
+    name: glance-presence
+    type: leading
+    target: { glance_days_pct_of_logging_days: 95, window: last 8 ISO weeks }
+    baseline: "0% (trend only reachable via /graph before home-trend-display)"
+    instrument: trend.glance.shown event paired with entry.saved per calendar day
+    storage: events table
+    query: |
+      WITH logged AS (SELECT DISTINCT date(ts) d FROM events WHERE name = 'entry.saved'),
+           glanced AS (SELECT DISTINCT date(ts) d FROM events WHERE name = 'trend.glance.shown')
+      SELECT COUNT(*) logging_days,
+             SUM(EXISTS (SELECT 1 FROM glanced WHERE glanced.d = logged.d)) glance_days
+      FROM logged;
+      -- presence % = glance_days / logging_days, surfaced on /stats
+    dashboard: /stats glance pairing (alongside trend_glance_shown_count — glance
+      deliveries over the same rolling 7-day window as trend_views_this_week; shipped
+      semantics confirmed at DELIVER 2026-07-23)
+    alert: none-automated; weekly manual review. KPI-3 note — a decline in deliberate
+      trend-view opens after this ships is an EXPECTED substitution, not a regression.
 
   - id: KPI-4
     name: subscription-cancelled
@@ -135,8 +166,17 @@ at_scenario_links:
     at_tag: "@kpi"
     scenarios:
       - "Opening the trend counts toward engagement (milestone-4-trend-through-noise.feature)"
+      - "The stats page still tells deliberate study from ambient glances (milestone-6-home-trend-glance.feature)"   # glances never pollute KPI-3
     measurement_window: per ISO week
     gate: soft
+  - kpi: KPI-5
+    at_tag: "@kpi"
+    scenarios:
+      - "The stats page still tells deliberate study from ambient glances (milestone-6-home-trend-glance.feature)"
+      - "The very first save brings the glance with it — 'An empty record shows no trend line until the first save brings one' (milestone-6-home-trend-glance.feature)"   # day-1 pairing: delivery rides the save response
+      - "The glance never taxes the entry (milestone-6-home-trend-glance.feature)"   # KPI-1 guardrail: <=2 s interactive with the glance present
+    measurement_window: last 8 ISO weeks (per-calendar-day pairing computed at read time)
+    gate: soft   # instrumentation emitting + queryable is AT-asserted; the >=95% presence itself is real-life data, reviewed weekly
   - kpi: KPI-4
     at_tag: null
     scenarios: []   # manual, self-verified; not automatable
@@ -179,3 +219,11 @@ baselines:
   - kpi: KPI-4
     status: manual
     evidence: "day-30 checklist after Slice 04 ships to production"
+  - kpi: KPI-5
+    status: instrumentation-verified
+    evidence: >
+      live-server demo 2026-07-23 (home-trend-display Phase 3.5): GET / first HTML carried
+      the trend-glance line; POST /entries saved response carried the co-revised glance;
+      /stats read trend_views 0 vs trend_glance_shown_count 16 (KPI-3 unpolluted).
+      Glance live from 2026-07-23; measured baseline 0% pre-ship (trend only reachable
+      via /graph before this feature).

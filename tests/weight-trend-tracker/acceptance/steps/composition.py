@@ -658,7 +658,9 @@ class GlanceService(_Service):
                          (null = degraded -- the save never blocks on the trend); a
                          delivery with data appends one `trend.glance.shown`. REJECTED
                          responses carry NO glance field and append nothing.
-        GET  /stats   -> gains `"trend_glance_shown_count"` (total deliveries).
+        GET  /stats   -> gains `"trend_glance_shown_count"` (glance deliveries over the
+                         same rolling 7-day window as trend_views_this_week, KPI-3/5
+                         separation).
         GET  /trend   -> UNTOUCHED: still emits `trend.view.opened` per open (KPI-3
                          separation is structural -- the glance never touches it).
 

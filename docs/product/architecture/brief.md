@@ -49,10 +49,10 @@ L3 omitted: fewer than 5 internal components per container (threshold not met).
 
 | Component | Kind | Contract shape | Responsibility / interface | Probe (Earned Trust) |
 |---|---|---|---|---|
-| Domain Core | pure module | pure-function (return-only) | Validation (range/precision/no-future/one-per-day resolution), window filtering, `trend_series(entries) -> [TrendPoint]` = Kalman forward + RTS backward pass on daily grid (ADR-004) | n/a (pure; property-based tests in CI) |
+| Domain Core | pure module | pure-function (return-only) | Validation (range/precision/no-future/one-per-day resolution), window filtering, `trend_series(entries) -> [TrendPoint]` = Kalman forward + RTS backward pass on daily grid (ADR-004); `glance(entries) -> GlanceSummary \| None` = series-end trend value + trailing-7-day endpoint-difference weekly rate with 0.05-step quantization/glyph rule (ADR-006) | n/a (pure; property-based tests in CI) |
 | `WeightLogging` | driving port | bounded-change (mutation universe = single `{date}` row + one telemetry event) | `record_or_replace(date, kg, entry_ms) -> Saved \| Rejected` | exercised via AT suite |
 | `WeightHistory` | driving port | read-only — **no write methods** | `entries_in(range) -> [Entry]`, `yesterday() -> Entry?` | exercised via AT suite |
-| `TrendProjection` | driving port | read-only, derived-never-stored — **no write methods** | `trend_series_in(range) -> [TrendPoint]` on daily calendar grid (gap days included; smoothed values revise as entries arrive — pure function of full entry set) | exercised via AT suite (determinism @property) |
+| `TrendProjection` | driving port | read-only, derived-never-stored — **no write methods** | `trend_series_in(range) -> [TrendPoint]` on daily calendar grid (gap days included; smoothed values revise as entries arrive — pure function of full entry set); extended read surface (`home-trend-display`, 2026-07-23): glance summary as a **second injected pure callable** at the composition root (ADR-006) — still read-only | exercised via AT suite (determinism @property) |
 | `AccessGate` | driving middleware | read-only per request | Passphrase POST → argon2 verify → signed HttpOnly cookie (90 d); guards all routes; login rate-limited (ADR-003) | startup: `PASSPHRASE_HASH` + `SESSION_SIGNING_KEY` present and parseable, else `health.startup.refused` |
 | `EntryStore` | driven adapter (SQLite) | bounded-change (tables `entries` PK `date`, `events` append-only) | Durable upsert/read of `{date, weight_kg, logged_at, entry_ms}`; KPI events | `probe()`: open; `PRAGMA integrity_check`; assert WAL + `synchronous=FULL`; sentinel write→fsync→readback; statfs ≠ tmpfs (overlayfs/tmpfs fsync-lie check). Failure ⇒ refuse start |
 | `Clock` | driven adapter | pure read | Server "now" for future-date sanity bound (client local date allowed ≤ server UTC date + 1) | `probe()`: year ∈ [2026, 2100] |
@@ -60,6 +60,8 @@ L3 omitted: fewer than 5 internal components per container (threshold not met).
 | Composition root | shell | — | Wire → **probe all driven adapters** → serve; any probe failure = structured `health.startup.refused`, no traffic served | startup self-test asserts every driven adapter implements `probe()` |
 
 Dependency rule: Domain Core imports nothing from shell/adapters. Enforcement (3 layers): `import-linter` layer contract (core → nothing outward); AST pre-commit hook asserting `probe()` presence on driven adapters (import-linter cannot enforce method presence); mypy strict + `Protocol` conformance at the composition root.
+
+Glance delivery (`home-trend-display`, DESIGN 2026-07-23, ADR-006): `GET /` renders the glance line server-side from the entry list it already fetches (zero added I/O/HTTP against the ≤2 s entry-primacy guardrail); `POST /entries` includes a `glance` field (or null) in its JSON response for the in-place refresh, including first appearance after the very first entry. This response enrichment and the route-level `trend.glance.shown` emission (per delivery, via the established `append_event` pattern) are **driving-adapter (route) concerns — NOT a widening of `WeightLogging.record_or_replace`**, whose bounded-change universe stays one `{date}` row + one `entry.saved` event (precedent: the derived `confirmation` field already in the save response). KPI-3 separation is structural: the glance never touches `GET /trend`. Glance failure degrades to an absent line (glance = null); logging and saving are never blocked.
 
 ### Technology Stack (all OSS; pin exact patch versions in lock files at DELIVER)
 
@@ -102,7 +104,10 @@ Dockerfile: `litestream replicate -exec "uvicorn app:asgi"` (supervisor pattern)
 | [ADR-003](adr-003-passphrase-auth.md) | Passphrase auth via argon2 + signed cookie |
 | [ADR-004](adr-004-trend-algorithm.md) | Trend = local-level Kalman filter + RTS smoother (Huberized) |
 | [ADR-005](adr-005-functional-core-paradigm.md) | Functional Core / Imperative Shell paradigm |
+| [ADR-006](adr-006-glance-rate-derivation.md) | Glance weekly rate = trailing-7-day endpoint difference of the smoothed series (does not supersede ADR-004) |
 
 ### Component Inventory (shipped — DELIVER 2026-07-23)
 
 All components from the decomposition table above shipped; none deferred. DELIVER-era additions within the sanctioned layout: `main.py` (production entrypoint, env-driven wiring), `shell/telemetry_store.py` (read-model queries over the shared `events` table), schema-version rollback guard in `shell/entry_store.py` + composition (DEVOPS pre-req 2a), `core/types.py:parse_time_scale` (total scale parser; hostile query input → 400), `scripts/check_probe_presence.py` (AST probe-presence gate). Trend uncertainty band (DESIGN OpenQ-5) not rendered — deferred, optional.
+
+Glance derivation (shipped 2026-07-23, DELIVER of `home-trend-display`): pure `core/glance.py` (glance/quantize_rate/rate_glyph per ADR-006) + shell delivery — glance in `GET /` render and `POST /entries` response, `trend.glance.shown` per delivery, `trend_glance_shown_count` on /stats (rolling 7-day window).
