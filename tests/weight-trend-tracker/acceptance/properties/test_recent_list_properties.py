@@ -37,11 +37,19 @@ ROW_GRAMMAR = re.compile(r"^[A-Z][a-z]{2} [1-9]\d? [A-Z][a-z]{2} — \d+\.\d kg$
 days = st.dates(min_value=date(2020, 1, 1), max_value=date(2030, 12, 31))
 weights = st.integers(min_value=300, max_value=2500).map(lambda i: i / 10)  # 30.0..250.0 kg
 
+#: One calendar year of days for LIST-shaped strategies. The row grammar drops
+#: the year BY DESIGN (A18: a recent week needs none), so `entry_row_text` is
+#: NOT injective across years -- 2020-01-01 and 2025-01-01 are both 'Wed 1 Jan'.
+#: Within a single year (day, month) is unique per date, so marker-based
+#: absence oracles stay sound (falsified 2026-07-24 by a cross-year collision).
+single_year_days = st.dates(min_value=date(2026, 1, 1), max_value=date(2026, 12, 31))
+
 
 @st.composite
 def newest_first_entries(draw, max_size: int = 12) -> list[Entry]:
-    """Distinct-day entry lists ordered newest first -- the shape all_entries() serves."""
-    picked = draw(st.sets(days, max_size=max_size))
+    """Distinct-day, marker-unique entry lists ordered newest first -- the shape
+    all_entries() serves (one person's record lives in one running calendar)."""
+    picked = draw(st.sets(single_year_days, max_size=max_size))
     kgs = draw(st.lists(weights, min_size=len(picked), max_size=len(picked)))
     return [
         Entry(day=d, weight_kg=kg) for d, kg in zip(sorted(picked, reverse=True), kgs, strict=True)
