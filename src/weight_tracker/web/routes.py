@@ -19,7 +19,7 @@ import json
 import statistics
 import sys
 from collections.abc import Callable, Sequence
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
@@ -30,7 +30,6 @@ from fastapi.templating import Jinja2Templates
 
 from weight_tracker.core.glance import GlanceSummary, quantize_rate, rate_glyph
 from weight_tracker.core.types import (
-    MAX_DEVICE_SKEW_DAYS,
     Entry,
     Rejected,
     RejectionReason,
@@ -42,7 +41,11 @@ from weight_tracker.core.types import (
     parse_time_scale,
     window_start,
 )
-from weight_tracker.core.validation import validate_entry_date, validate_weight
+from weight_tracker.core.validation import (
+    bounded_day_frame,
+    validate_entry_date,
+    validate_weight,
+)
 from weight_tracker.ports import ClockPort, EntryStorePort
 from weight_tracker.shell.access_gate import (
     SESSION_COOKIE,
@@ -146,23 +149,21 @@ def day_frame_or_bad_request(claimed_today: str | None, server_utc_today: date) 
     The phone claims its local day via ?today=; absent (curl/API compat), the
     server's own UTC day frames the window as before. A garbled claim is turned
     away with 400 (C6: total parse, precedent `parse_time_scale`). A parseable
-    claim outside server_utc_today +/- MAX_DEVICE_SKEW_DAYS -- no real timezone
-    sits further than one calendar day from UTC -- is clamped to the nearest
-    bound: reads stay forgiving where saves stay strict, so a phone with a
-    wildly wrong clock still receives a sensible, bounded window.
+    claim outside the plausible device window is clamped by the core's
+    `bounded_day_frame` -- one copy of the calendar rule, shared with the
+    backdated-save classifier (ADR-011): reads stay forgiving where saves stay
+    strict, so a phone with a wildly wrong clock still receives a sensible,
+    bounded window.
     """
     if claimed_today is None:
         return server_utc_today
-    try:
-        claimed_day = date.fromisoformat(claimed_today)
-    except ValueError:
+    framed = bounded_day_frame(claimed_today, server_utc_today)
+    if framed is None:
         raise HTTPException(
             status_code=400,
             detail=f"Unrecognisable day {claimed_today!r}. Expected an ISO date (YYYY-MM-DD).",
-        ) from None
-    earliest = server_utc_today - timedelta(days=MAX_DEVICE_SKEW_DAYS)
-    latest = server_utc_today + timedelta(days=MAX_DEVICE_SKEW_DAYS)
-    return min(max(claimed_day, earliest), latest)
+        )
+    return framed
 
 
 def _rejected_save(rejected: Rejected, typed_value: str) -> dict[str, Any]:
