@@ -69,7 +69,7 @@ Feature: The tracker looks finished, calm in daylight and dark in the dark
     Then the passphrase door is shown again with a visible rejection
     And his record stays hidden
 
-  @pending @driving_port @US-009 @contract-shape:pure-function
+  @driving_port @US-009 @contract-shape:pure-function
   Scenario: The graph dresses from the same palette
     Given Clemens has unlocked the tracker with his passphrase
     And his record holds an entry for every day from 1 July 2026 to 22 July 2026

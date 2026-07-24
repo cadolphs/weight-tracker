@@ -129,15 +129,37 @@ main > * + * {
   color: var(--text-muted);
 }
 
+#view-toggle,
+#scale-picker {
+  display: flex;
+  gap: var(--space-2);
+}
+
+#view-toggle button,
+#scale-picker button {
+  padding: var(--space-1) var(--space-2);
+}
+
 /* ---- Exception: state via attributes, never new classes ---- */
 [hidden] {
   display: none;
 }
 
+/* Toggle controls rest as quiet outlines; the pressed one is told apart by
+   FILL (outline -> solid) and WEIGHT (regular -> bold), never color alone.
+   Both looks come from the same tokens, so both schemes keep the promise. */
+[aria-pressed] {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-weight: 400;
+}
+
 [aria-pressed="true"] {
   background: var(--btn-bg);
   color: var(--btn-text);
-  text-decoration: underline;
+  border-color: var(--btn-bg);
+  font-weight: 700;
 }
 
 :focus-visible {
