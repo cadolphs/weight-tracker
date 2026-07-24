@@ -54,6 +54,7 @@ markers = [
     "us_004: traces to US-004", "us_005: traces to US-005", "us_006: traces to US-006",
     "us_007: traces to US-007", "us_008: traces to US-008", "us_009: traces to US-009",
     "us_010: traces to US-010", "us_011: traces to US-011", "us_012: traces to US-012",
+    "us_013: traces to US-013", "us_014: traces to US-014",
     "contract_shape_pure_function: contract shape tag",
     "contract_shape_bounded_change: contract shape tag",
     "contract_shape_unbounded_preservation: contract shape tag",

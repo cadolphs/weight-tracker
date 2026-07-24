@@ -23,7 +23,11 @@ from weight_tracker.core.trend import trend_series_in
 from weight_tracker.ports import ClockPort
 from weight_tracker.shell.access_gate import AccessGate, install_access_gate
 from weight_tracker.shell.entry_store import SqliteEntryStore, replication_status
-from weight_tracker.shell.telemetry_store import count_events_since, entry_ms_samples_since
+from weight_tracker.shell.telemetry_store import (
+    backdated_saves_since,
+    count_events_since,
+    entry_ms_samples_since,
+)
 from weight_tracker.web.routes import build_router
 
 
@@ -54,7 +58,9 @@ def build_app(
         GET  /graph?view=...&scale=...   graph page (default view=trend A4; one-tap
                                          Trend/Raw toggle shares selected_time_scale)
         GET  /stats                      KPI query surface (entry speed, adherence, trend
-                                         opens incl. trend_views_this_week rolling 7 days)
+                                         opens incl. trend_views_this_week rolling 7 days,
+                                         and backdated_saves_this_week -- in-app repairs,
+                                         KPI-8 -- over that same rolling week)
         GET  /healthz                    unauthenticated health/replication status
         GET  /manifest.webmanifest       PWA install manifest
         GET  /sw.js                      minimal service worker (app-shell cache only)
@@ -76,6 +82,7 @@ def build_app(
             glance_summary_of=glance,
             count_events_since=partial(count_events_since, db_path),
             entry_ms_samples_since=partial(entry_ms_samples_since, db_path),
+            backdated_saves_since=partial(backdated_saves_since, db_path),
             replication_status=lambda: replication_status(db_path),
         )
     )

@@ -338,6 +338,7 @@ def build_router(
     glance_summary_of: GlanceProjection,
     count_events_since: Callable[[str, date], int],
     entry_ms_samples_since: Callable[[str, date], list[int]],
+    backdated_saves_since: Callable[[str, date], int],
     replication_status: Callable[[], str],
 ) -> APIRouter:
     router = APIRouter()
@@ -591,6 +592,11 @@ def build_router(
             "home_graph_shown_this_week": count_events_since(
                 HOME_GRAPH_SHOWN_EVENT, kpi_week_start
             ),
+            # KPI-8 (ADR-011): gaps and typos repaired in the app, over the SAME
+            # rolling week as its neighbours. Read off the `backdated` flag the save
+            # itself stamps -- one event per save (D-23) -- so a repair shows up here
+            # exactly where it is withheld from the morning-speed record below.
+            "backdated_saves_this_week": backdated_saves_since(ENTRY_SAVED_EVENT, kpi_week_start),
             "speed": speed_summary(entry_ms_samples_since(ENTRY_SAVED_EVENT, kpi_week_start)),
         }
 

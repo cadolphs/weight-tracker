@@ -17,8 +17,17 @@ HTTP surface contract (executable spec for DELIVER -- see build_app docstring):
     POST /login {passphrase}                 -> 200 + session cookie | 401 | 429 (throttled)
     GET  /entries?scale=<1W|1M|3M|6M|1Y|ALL> -> {"entries":[{"date","weight_kg"}...newest first],
                                                  "invite_first_log": bool}
-    POST /entries {date, weight, entry_ms?}  -> {"outcome":"saved","confirmation":...,
+    POST /entries {date, weight, entry_ms?,
+                   today?}                   -> {"outcome":"saved","confirmation":...,
                                                  "date","weight_kg"}
+                                              (`today` = the phone's own day, ADR-011:
+                                               additive, optional, backward-compatible;
+                                               absent/garbled falls back to the server's
+                                               UTC day and NEVER 400s. A save whose date
+                                               is not the claimed day is BACKDATED: its
+                                               entry_ms is withheld (0 KPI-1 samples) and
+                                               its entry.saved payload carries
+                                               "backdated": true)
                                               | {"outcome":"rejected",
                                                  "reason":<RejectionReason value>,
                                                  "echo":<raw input>}   (401 when locked)
@@ -32,6 +41,7 @@ HTTP surface contract (executable spec for DELIVER -- see build_app docstring):
                                                  "trend_views_this_week" (both frozen-historical
                                                  since ADR-009), "trend_study_this_week",
                                                  "home_graph_shown_this_week",
+                                                 "backdated_saves_this_week" (KPI-8 repairs),
                                                  "speed":{"median_ms","p90_ms","sample_count"}}
     GET  /healthz                            -> 200 {"status":"ok",...} without auth
     GET  /manifest.webmanifest               -> 200 PWA manifest
@@ -52,10 +62,12 @@ from typing import Any
 from argon2 import PasswordHasher
 from domain_types import (
     CONTRAST_CONTRACT,
+    GARBLED_DAY_CLAIM,
     MIN_CONTRAST_RATIO,
     TEST_PASSPHRASE,
     ColorScheme,
     ContrastClass,
+    DayClaim,
     RateDisposition,
     RejectionReason,
     Screen,
@@ -64,6 +76,7 @@ from domain_types import (
     ViewMode,
     contrast_ratio,
     dark_override_names,
+    day_label,
     hex_colors_in,
     parse_day,
     scheme_token_maps,
@@ -121,6 +134,7 @@ class TrackerComposition:
         self.recent_list = RecentListService(self)
         self.history_record = HistoryRecordService(self)
         self.study = StudyService(self)
+        self.dated_entry = DatedEntryService(self)
 
     # -- composition root (lazy: nothing is built until first use) ----------------
 
@@ -288,12 +302,59 @@ class LoggingService(_Service):
         ctx.before, ctx.raw_input = self.comp.capture_universe(), raw_weight
         return self.record("today", raw_weight)
 
+    # -- saves as the PHONE makes them (entry-date-picker, ADR-011) ---------------
+
+    def _save(
+        self,
+        day: date,
+        raw_weight: str,
+        *,
+        entry_ms: int | None = None,
+        claim: DayClaim = DayClaim.DEVICE_DAY,
+    ) -> Any:
+        """One save carrying the picked date AND, optionally, the phone's own day.
+
+        The `today` claim is what makes the backdated rule falsifiable at the HTTP
+        boundary (ADR-011): the suite composes the two days independently, so a
+        classifier that trusted client omission instead would be caught here."""
+        payload: dict[str, Any] = {"date": day.isoformat(), "weight": raw_weight}
+        if entry_ms is not None:
+            payload["entry_ms"] = entry_ms
+        if claim is DayClaim.DEVICE_DAY:
+            payload["today"] = self.comp.resolve_day("today").isoformat()
+        elif claim is DayClaim.GARBLED:
+            payload["today"] = GARBLED_DAY_CLAIM
+        return self.comp.actor().post("/entries", json=payload)
+
+    def backfill(self, day: date, raw_weight: str, entry_ms: int | None = None) -> Any:
+        """A repair from the date row: a past day picked while the phone lives today."""
+        return self._save(day, raw_weight, entry_ms=entry_ms)
+
+    def correct(self, day: date, kg: float) -> Any:
+        return self._save(day, f"{kg:.1f}")
+
+    def log_today(self, raw_weight: str, entry_ms: int | None = None) -> Any:
+        """The default morning: the picked day IS the phone's day (zero date-row taps)."""
+        return self._save(self.comp.resolve_day("today"), raw_weight, entry_ms=entry_ms)
+
+    def save_with_claim(self, day: date, raw_weight: str, claim: DayClaim) -> Any:
+        return self._save(day, raw_weight, claim=claim)
+
     # -- seeding (always through the driving port, never the store) ---------------
 
-    def seed(self, day: date, kg: float, entry_ms: int | None = None) -> None:
+    def seed(
+        self,
+        day: date,
+        kg: float,
+        entry_ms: int | None = None,
+        *,
+        as_its_own_morning: bool = False,
+    ) -> None:
         payload: dict[str, Any] = {"date": day.isoformat(), "weight": f"{kg:.1f}"}
         if entry_ms is not None:
             payload["entry_ms"] = entry_ms
+        if as_its_own_morning:
+            payload["today"] = day.isoformat()
         resp = self.comp.observer().post("/entries", json=payload)
         assert resp.status_code == 200 and resp.json()["outcome"] == "saved", (
             f"seeding {day} = {kg} failed: {resp.status_code} {resp.text[:200]}"
@@ -320,9 +381,21 @@ class LoggingService(_Service):
             self.seed(day, round(from_kg + per_week * ((day - start).days // 7 + 1), 1))
 
     def seed_timed_week(self, end: date) -> list[int]:
+        """A week of real MORNINGS -- each one logged on the day it happened.
+
+        RENEGOTIATED at DISTILL of entry-date-picker (ADR-011, never silent):
+        a morning is a SAME-DAY save. Seeding the whole week in one instant was
+        indistinguishable from seven repairs once saves are classified at write
+        time, and would strip six of the seven timings out of the KPI-1 report --
+        loudly (milestone-5 asserts sample_count == 7), never silently. The clock
+        therefore walks the week and each save claims its own day, which is what
+        actually happened on the phone."""
         timings = [4200, 3900, 5100, 4400, 4800, 6900, 4100]
         for offset, ms in enumerate(timings):
-            self.seed(end - timedelta(days=6 - offset), 82.4, entry_ms=ms)
+            morning = end - timedelta(days=6 - offset)
+            self.comp.clock.set_today(morning)
+            self.seed(morning, 82.4, entry_ms=ms, as_its_own_morning=True)
+        self.comp.clock.set_today(end)
         return timings
 
     def assert_absent(self, day: date) -> None:
@@ -563,9 +636,26 @@ class GraphService(_Service):
 #: Post-fix render source (fix-device-day-reads): the recent-days map the entry
 #: screen embeds inside its one inline script for the PHONE-side yesterday render.
 RECENT_WEIGHTS_MAP = re.compile(r"const recentWeights = (\{[^;]*\});")
+#: Widened render source (entry-date-picker, ADR-010/D-21): the WHOLE record as
+#: {iso_day: kg}. CONSCIOUS RENEGOTIATION of the map-const name (R-1a, never
+#: silent): ONE map now answers both the yesterday anchor and the edit prefill,
+#: so the anchor and the prefill can never disagree. Both names are read here so
+#: the shipped anchor scenarios stay green BEFORE and AFTER the rename; a page
+#: carrying neither still fails on the missing VALUE via the paragraph fallback.
+RECORD_WEIGHTS_MAP = re.compile(r"const recordWeights = (\{[^;]*\});")
 #: Pre-fix render source: the server-rendered anchor paragraph. Kept as fallback
 #: so the skew regression fails on the wrong VALUE shown, not on a missing marker.
 SERVER_RENDERED_YESTERDAY = re.compile(r"yesterday: (\d+\.\d) kg")
+
+
+def embedded_weights(html: str) -> dict[str, float] | None:
+    """The day-to-weight map the entry screen hands the phone, or None if the
+    page carries no map at all (pre-fix render)."""
+    for pattern in (RECORD_WEIGHTS_MAP, RECENT_WEIGHTS_MAP):
+        found = pattern.search(html)
+        if found is not None:
+            return dict(json.loads(found.group(1)))
+    return None
 
 
 class ScreenService(_Service):
@@ -596,10 +686,9 @@ class ScreenService(_Service):
         via resolve_day -- at the skew moment the two diverge). Pre-fix pages
         carried a server-rendered paragraph: read it, so the regression fails
         on the wrong value shown, never on a missing marker."""
-        embedded = RECENT_WEIGHTS_MAP.search(ctx.response.text)
+        embedded = embedded_weights(ctx.response.text)
         if embedded is not None:
-            weights = json.loads(embedded.group(1))
-            return weights.get(self.comp.resolve_day("yesterday").isoformat())
+            return embedded.get(self.comp.resolve_day("yesterday").isoformat())
         line = SERVER_RENDERED_YESTERDAY.search(ctx.response.text)
         return float(line.group(1)) if line is not None else None
 
@@ -1673,4 +1762,292 @@ class StudyService(_Service):
         self.deliberate_count()  # the counter must exist for "no mark" to mean anything
         assert self.trail_counts() == ctx.trail_before, (
             "a refused or stranger's signal must leave the trail untouched"
+        )
+
+
+# ---------------------------------------------------------------- dated entry
+
+#: Executable markup contract (entry-date-picker, DISTILL 2026-07-24): the date
+#: row is a native <input type="date" id="entry-date"> INSIDE the entry form and
+#: ABOVE the weight field. `min` (first entry day - 1 year, D-25/OQ-11) is the
+#: only bound the server can supply; `value` and `max` come from the phone's own
+#: day (A5 -- the server has no device day), so they are client-structural and
+#: verified at dogfood (client-paint precedent, D-15). The server's skew-bounded
+#: no-future rule stays authoritative and IS asserted here.
+DATE_ROW = re.compile(r'<input[^>]*id="entry-date"[^>]*>')
+DATE_ROW_EARLIEST = re.compile(r'min="(\d{4}-\d{2}-\d{2})"')
+#: ONE hint node (D-24) carrying three mutually exclusive states: the yesterday
+#: anchor, `Editing {day} — was {v} kg`, `No entry for {day} yet`. "Never two
+#: hints at once" is STRUCTURAL -- there is one node -- not a convention.
+ENTRY_HINT_NODE = re.compile(r'<[a-z]+[^>]*id="entry-hint"[^>]*>')
+RETIRED_ANCHOR_NODE = re.compile(r'id="yesterday-reference"')
+
+#: /stats key for in-app repairs (KPI-8): backdated saves over the same rolling
+#: week frame as every counter beside it.
+REPAIR_COUNT_KEY = "backdated_saves_this_week"
+
+#: Trail-only universe (Mandate 8) for the KPI-1 purity promise (A23/ADR-011).
+#: The record's own delta is the co-located "holds exactly one entry" step's
+#: promise, declared over UNIVERSE there; these scenarios promise what a save
+#: does to the TRAIL, fail-closed.
+PURITY_UNIVERSE = {
+    "telemetry.entry_logged_count",
+    "telemetry.speed_sample_count",
+    "telemetry.repair_count",
+}
+
+
+class DatedEntryService(_Service):
+    """The date row, the whole-record map, and write-time save classification
+    (US-013 + US-014, ADR-010 + ADR-011).
+
+    DELIVER-facing HTTP contract (executable spec):
+        GET  /        -> the entry form carries `#entry-date` (native date input,
+                         no autofocus) above `#weight`, with `min` = first entry
+                         day - 1 year (omitted on an empty record); ONE `#entry-hint`
+                         node replaces `#yesterday-reference`; the inline script's
+                         map widens to the WHOLE record as {iso_day: kg}
+                         (`const recordWeights = {...}`) -- one map for the anchor
+                         AND the prefill, so the two can never disagree.
+        POST /entries -> accepts an additive, optional `today` claim (the phone's
+                         own day). After validation, `backdated = date != claimed
+                         day` (skew-clamped; absent/garbled falls back to the
+                         server's UTC day and never 400s). A backdated save records
+                         entry_ms as NULL -- 0 KPI-1 samples via the shipped
+                         null-skip -- and carries "backdated": true on its
+                         entry.saved payload. Response shape unchanged.
+        GET  /stats   -> gains `backdated_saves_this_week` (KPI-8), same rolling
+                         week as its neighbours.
+
+    Oracles: the record read-back (`/entries?scale=ALL`) for the map, the shipped
+    pure `trend_series` for the post-repair recompute, and the server's own row
+    grammar for the hint's day label -- never a second wording invented here."""
+
+    # -- what the tracker serves ------------------------------------------------
+
+    def _date_row(self, ctx: SimpleNamespace) -> str:
+        found = DATE_ROW.search(ctx.response.text)
+        assert found, (
+            "the entry screen must offer a date row (a native #entry-date input) "
+            "so a past day can be repaired where the habit lives"
+        )
+        return found.group(0)
+
+    def assert_row_above_field(self, ctx: SimpleNamespace) -> None:
+        html, row = ctx.response.text, self._date_row(ctx)
+        assert 'type="date"' in row, (
+            f"the date row must be the phone's OWN picker -- a native date input (D6), got {row}"
+        )
+        assert html.index("<form") < html.index(row) < html.index('id="weight"'), (
+            "the date row belongs inside the entry form, above the weight field (D6)"
+        )
+
+    def assert_no_focus_theft(self, ctx: SimpleNamespace) -> None:
+        assert "autofocus" not in self._date_row(ctx), (
+            "the date row must never take the morning focus -- the keypad comes up "
+            "on the weight field, as it always did (D6/D-25)"
+        )
+        self.comp.home_graph.assert_no_focus_theft(ctx)
+
+    def assert_reaches_back_to(self, ctx: SimpleNamespace, day: date) -> None:
+        row = self._date_row(ctx)
+        earliest = DATE_ROW_EARLIEST.search(row)
+        assert earliest and earliest.group(1) == day.isoformat(), (
+            f"a mistyped year would stretch every recompute for good: the date row's "
+            f"earliest day must be {day} (the record's first day minus a year, OQ-11), "
+            f"row: {row}"
+        )
+
+    # -- the map that answers ANY stored day (ADR-010) --------------------------
+
+    def _offered(self, ctx: SimpleNamespace) -> dict[str, float]:
+        weights = embedded_weights(ctx.response.text)
+        assert weights is not None, (
+            "the entry screen must hand the phone the record's day-to-weight map -- "
+            "ONE map answering both the yesterday anchor and the edit prefill (ADR-010)"
+        )
+        return weights
+
+    def _stored(self) -> dict[str, float]:
+        shown = self.comp.observer().get("/entries", params={"scale": TimeScale.ALL.value}).json()
+        return {entry["date"]: entry["weight_kg"] for entry in shown["entries"]}
+
+    def assert_offers(self, ctx: SimpleNamespace, day: date, kg: float) -> None:
+        offered = self._offered(ctx).get(day.isoformat())
+        assert offered == kg, (
+            f"picking {day} must offer its stored {kg:.1f} kg back for correction -- "
+            f"any stored day, however old (A24) -- but the screen offers {offered}"
+        )
+
+    def assert_offers_whole_record(self, ctx: SimpleNamespace) -> None:
+        offered, stored = self._offered(ctx), self._stored()
+        assert offered == stored, (
+            f"every stored day must answer with its own value (ADR-010): {len(stored)} "
+            f"days stored, {len(offered)} offered; first disagreements "
+            f"{sorted(set(stored.items()) ^ set(offered.items()))[:5]}"
+        )
+
+    def assert_offers_nothing_for(self, ctx: SimpleNamespace, day: date) -> None:
+        assert day.isoformat() not in self._offered(ctx), (
+            f"a day without an entry must come back as a gap, never as a value -- "
+            f"a blind overwrite is exactly what the prefill exists to prevent ({day})"
+        )
+
+    def assert_nothing_to_correct(self, ctx: SimpleNamespace) -> None:
+        assert self._offered(ctx) == {}, (
+            "an empty record offers nothing to correct, and the save path is "
+            "untouched either way (degrade-to-absent)"
+        )
+
+    # -- one hint line, one grammar (D-24) --------------------------------------
+
+    def assert_single_hint_line(self, ctx: SimpleNamespace) -> None:
+        html = ctx.response.text
+        nodes = ENTRY_HINT_NODE.findall(html)
+        assert len(nodes) == 1, (
+            f"ONE hint line serves the anchor, the editing hint and the no-entry hint: "
+            f"'never two at once' is structural, but the screen carries {len(nodes)}"
+        )
+        assert not RETIRED_ANCHOR_NODE.search(html), (
+            "the anchor's old node is absorbed INTO the one hint line, never kept beside it"
+        )
+
+    def assert_hint_speaks_record_grammar(self, ctx: SimpleNamespace) -> None:
+        """The hint names its day in the ONE grammar the record already speaks:
+        the label the phone renders must equal the day half of the server's own
+        row for that day -- no second calendar wording (D-24, Mandate-12)."""
+        stored = self._stored()
+        assert stored, "the grammar check needs at least one stored day"
+        newest = date.fromisoformat(max(stored))
+        block = RECENT_LIST_BLOCK.search(ctx.response.text)
+        assert block, "the grammar check reads the record's own rendered row"
+        newest_row = LIST_ROW.search(block.group(0))
+        assert newest_row and newest_row.group(1).strip().split(" — ")[0] == day_label(newest), (
+            f"the hint must name its day in the record's own grammar ({day_label(newest)!r}), "
+            f"but the record renders {newest_row and newest_row.group(1)!r}"
+        )
+
+    # -- write-time classification (ADR-011): the trail --------------------------
+
+    def capture_trail(self) -> dict[str, Any]:
+        """Snapshot of what a save may move on the trail. Deliberately TOLERANT of a
+        missing KPI-8 counter (None) so a scenario fails at its OWN first missing
+        thing rather than at the capture -- the repair-count assertions below
+        demand the counter explicitly."""
+        stats = self.comp.observer().get("/stats").json()
+        return {
+            "telemetry.entry_logged_count": stats["entry_logged_count"],
+            "telemetry.speed_sample_count": stats["speed"]["sample_count"],
+            "telemetry.repair_count": stats.get(REPAIR_COUNT_KEY),
+            # extra slot, deliberately outside PURITY_UNIVERSE: a morning legitimately
+            # moves the median, a repair must not (the R-2 corruption guard).
+            "telemetry.speed_median_ms": stats["speed"]["median_ms"],
+        }
+
+    def remember(self, ctx: SimpleNamespace) -> None:
+        """Both promises captured before the save: the record's and the trail's."""
+        ctx.before = self.comp.capture_universe()
+        ctx.trail_before = self.capture_trail()
+
+    def assert_mornings_unchanged(self, ctx: SimpleNamespace) -> None:
+        """KPI-1 purity (A23): however long the repair took, the week's morning
+        record neither gains a sample nor shifts its median -- and correcting a
+        timed morning does not erase what that morning already cost (the trail is
+        the KPI-1 source of truth, R-2)."""
+        after, before = self.capture_trail(), ctx.trail_before
+        for slot in ("telemetry.speed_sample_count", "telemetry.speed_median_ms"):
+            assert after[slot] == before[slot], (
+                f"a repair must leave the morning-speed record exactly as it was "
+                f"({slot}: {before[slot]} -> {after[slot]}) -- one slow backfill would "
+                f"otherwise poison the week the five-second target guards"
+            )
+
+    def _require_repair_counter(self, snapshot: dict[str, Any]) -> None:
+        assert snapshot["telemetry.repair_count"] is not None, (
+            f"the stats page must count in-app repairs ({REPAIR_COUNT_KEY!r}, KPI-8): "
+            "a gap or typo repaired in the app is the whole point of the date row"
+        )
+
+    def assert_repair_counted(self, ctx: SimpleNamespace) -> None:
+        self._require_repair_counter(ctx.trail_before)
+        assert_state_delta(
+            before=ctx.trail_before,
+            after=self.capture_trail(),
+            universe=PURITY_UNIVERSE,
+            expected={
+                "telemetry.entry_logged_count": set_to(
+                    ctx.trail_before["telemetry.entry_logged_count"] + 1
+                ),
+                "telemetry.repair_count": set_to(ctx.trail_before["telemetry.repair_count"] + 1),
+                "telemetry.speed_sample_count": unchanged(),
+            },
+        )
+
+    def assert_morning_counted(self, ctx: SimpleNamespace) -> None:
+        self._require_repair_counter(ctx.trail_before)
+        assert_state_delta(
+            before=ctx.trail_before,
+            after=self.capture_trail(),
+            universe=PURITY_UNIVERSE,
+            expected={
+                "telemetry.entry_logged_count": set_to(
+                    ctx.trail_before["telemetry.entry_logged_count"] + 1
+                ),
+                "telemetry.speed_sample_count": set_to(
+                    ctx.trail_before["telemetry.speed_sample_count"] + 1
+                ),
+                "telemetry.repair_count": unchanged(),
+            },
+        )
+
+    def assert_no_repair_counted(self, ctx: SimpleNamespace) -> None:
+        after = self.capture_trail()
+        self._require_repair_counter(after)
+        assert after["telemetry.repair_count"] == ctx.trail_before["telemetry.repair_count"], (
+            "a same-day morning is not a repair: the KPI-8 counter must not move"
+        )
+
+    def assert_trail_untouched(self, ctx: SimpleNamespace) -> None:
+        self._require_repair_counter(ctx.trail_before)
+        assert_state_delta(
+            before=ctx.trail_before,
+            after=self.capture_trail(),
+            universe=PURITY_UNIVERSE,
+            expected={},  # fail-closed: a refused save marks neither speed nor repairs
+        )
+
+    # -- the refreshed picture (A22) + the recompute -----------------------------
+
+    def assert_handed_back(self, ctx: SimpleNamespace, row_text: str) -> None:
+        body = ctx.response.json()
+        recent = body.get("recent")
+        assert recent is not None, (
+            "the save must hand back the refreshed picture (`recent`, D-19) -- a repair "
+            "refreshes in place exactly like a morning log"
+        )
+        rows = [entry_row_text(date.fromisoformat(e["date"]), e["weight_kg"]) for e in recent]
+        assert rows.count(row_text) == 1, (
+            f"the repaired day must stand exactly ONCE in the refreshed picture "
+            f"(one entry per day), expected {row_text!r} among {rows}"
+        )
+        assert "glance" in body, "the repair's response carries the recomputed glance beside it"
+
+    def assert_trend_reflects(self, day: date) -> None:
+        """The trend recomputes over the repaired record: the served line equals the
+        shipped pure series over the CURRENT entry set, and covers the repaired day."""
+        stored = self._stored()
+        entries = [
+            Entry(day=date.fromisoformat(iso), weight_kg=kg) for iso, kg in sorted(stored.items())
+        ]
+        expected = [
+            (point.day.isoformat(), round(point.trend_kg, 9)) for point in trend_series(entries)
+        ]
+        served = self.comp.observer().get("/trend", params={"scale": TimeScale.ALL.value}).json()
+        shown = [(point["date"], round(point["trend_kg"], 9)) for point in served["points"]]
+        assert shown == expected, (
+            "after a repair the trend must be recomputed over the whole repaired record "
+            f"({len(expected)} days expected, {len(shown)} served)"
+        )
+        assert day.isoformat() in {shown_day for shown_day, _ in shown}, (
+            f"the repaired day {day} must be part of the trend the record now tells"
         )

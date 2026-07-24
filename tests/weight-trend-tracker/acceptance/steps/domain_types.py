@@ -271,3 +271,47 @@ def dark_override_names(css: str) -> frozenset[str]:
 def hex_colors_in(document: str) -> tuple[str, ...]:
     """Every hard-coded hex color literal in a document (single-palette guard)."""
     return tuple(_HEX_COLOR.findall(document))
+
+
+# --------------------------------------------------------------------------
+# entry-date-picker (US-013 / US-014) typed vocabulary
+# --------------------------------------------------------------------------
+
+
+class DayClaim(Enum):
+    """What a save says about the phone's OWN calendar day (ADR-011, D-22).
+
+    The claim is additive and optional: present and honest for a phone-made
+    save, absent for an API/curl client, garbled when a lying or broken client
+    sends nonsense. Absent or garbled falls back to the server's UTC day and
+    must NEVER block or reject a save -- a telemetry concern may not cost an
+    entry."""
+
+    DEVICE_DAY = "the phone's own day"
+    ABSENT = "with no word about the phone's day"
+    GARBLED = "with a garbled word for the phone's day"
+
+
+#: Business-language claim phrases (Gherkin surface) -> the typed claim shape.
+CLAIM_PHRASES: dict[str, DayClaim] = {
+    "with no word about the phone's day": DayClaim.ABSENT,
+    "with a garbled word for the phone's day": DayClaim.GARBLED,
+    "from his phone": DayClaim.DEVICE_DAY,
+}
+
+#: The nonsense a garbled claim carries (the `?today=` garbled-claim precedent).
+GARBLED_DAY_CLAIM = "someday-soon"
+
+
+def parse_claim(phrase: str) -> DayClaim:
+    return CLAIM_PHRASES[phrase]
+
+
+def day_label(day: date) -> str:
+    """The ONE day grammar every surface speaks (D-24): 'Thu 23 Jul'.
+
+    Identical to the day half of the production row grammar
+    (`routes.entry_row_text`) and of `Saved.confirmation` -- the hint line
+    reuses it rather than forking a second calendar wording. Asserted against
+    the server's own rendered rows, never trusted on its own."""
+    return f"{day:%a} {day.day} {day:%b}"

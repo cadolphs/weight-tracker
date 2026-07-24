@@ -42,3 +42,22 @@ def entry_ms_samples_since(db_path: Path, name: str, since: date) -> list[int]:
         ).fetchall()
     durations = (json.loads(payload).get("entry_ms") for (payload,) in rows)
     return [int(duration) for duration in durations if duration is not None]
+
+
+def backdated_saves_since(db_path: Path, name: str, since: date) -> int:
+    """In-app repairs (KPI-8) carried by `name` events stamped on `since` or any
+    later day: the saves the record itself calls backdated.
+
+    A save dated away from the phone's own day is maintenance, not a morning --
+    it contributes 0 KPI-1 speed samples and is counted here instead (ADR-011).
+    The trail keeps ONE event per save (D-23), so the classification travels as a
+    `backdated` flag on the entry.saved payload rather than a second event name;
+    reading it is therefore a payload predicate, not a name count. Every save
+    written before the flag existed carries no `backdated` word and is no repair.
+    """
+    with closing(sqlite3.connect(db_path)) as connection:
+        rows = connection.execute(
+            "SELECT payload FROM events WHERE name = ? AND ts >= ?",
+            (name, since.isoformat()),
+        ).fetchall()
+    return sum(1 for (payload,) in rows if json.loads(payload).get("backdated"))
