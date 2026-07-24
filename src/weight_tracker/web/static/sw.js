@@ -1,10 +1,11 @@
 // Minimal app-shell service worker (D-11/ADR-001): pre-cache the shell, serve
 // network-first with cache fallback. GET only -- saves are never queued offline.
-const SHELL_CACHE = "weight-tracker-shell-v2";
+const SHELL_CACHE = "weight-tracker-shell-v3";
 const APP_SHELL = [
   "/",
   "/static/uplot.iife.min.js",
   "/static/uplot.min.css",
+  "/static/graph.js",
   "/static/theme.css",
 ];
 

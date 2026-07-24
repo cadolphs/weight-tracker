@@ -132,7 +132,15 @@ main > * + * {
 #view-toggle,
 #scale-picker {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
+}
+
+/* Front-page ambient graph (US-010, ADR-008): the morning picture rests in the
+   same quiet column -- tokens only, controls keep the global 44px comfort; the
+   chart canvas holds its place so the entry form never jumps under the thumb. */
+#home-graph #chart {
+  min-height: 320px;
 }
 
 #view-toggle button,

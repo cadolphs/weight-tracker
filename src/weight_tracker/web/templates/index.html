@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Weight Tracker</title>
   <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/static/uplot.min.css">
   <link rel="stylesheet" href="/static/theme.css">
 </head>
 <body>
@@ -12,6 +13,30 @@
     <h1>Log today's weight</h1>
     {% if glance_text is not none %}
     <p id="trend-glance">{{ glance_text }}</p>
+    {% endif %}
+    {% if recent_weights %}
+    <!-- Ambient morning picture (US-010, ADR-008): the whole record's trend curve
+         ABOVE the entry form, driven by the same shared engine as the History page.
+         The mount's data-view/data-scale carry the page state exactly like
+         #graph-page does; buttons speak only data-lens/data-window (control
+         grammar). The front page ALWAYS opens at the ambient defaults (A17/D-20):
+         no query parameter reaches this markup. Rendered only when entries exist
+         -- an empty record keeps the front page simple (A18 kin). -->
+    <section id="home-graph" data-view="trend" data-scale="3M" aria-label="Weight trend">
+      <nav id="view-toggle" aria-label="Graph lens">
+        <button data-lens="trend">Trend</button>
+        <button data-lens="raw">Raw</button>
+      </nav>
+      <nav id="scale-picker" aria-label="Time scale">
+        <button data-window="1W">1W</button>
+        <button data-window="1M">1M</button>
+        <button data-window="3M">3M</button>
+        <button data-window="6M">6M</button>
+        <button data-window="1Y">1Y</button>
+        <button data-window="ALL">All</button>
+      </nav>
+      <div id="chart"></div>
+    </section>
     {% endif %}
     <form method="post" action="/entries">
       <label for="weight">Weight (kg)</label>
@@ -22,6 +47,11 @@
     </form>
     <p><a href="/graph">History</a></p>
   </main>
+  <!-- ONE shared graph engine (ADR-008), deferred and same-origin (G-5 as
+       renegotiated): it finds the #home-graph mount when the record has entries
+       and stays silent otherwise. -->
+  <script src="/static/uplot.iife.min.js" defer></script>
+  <script src="/static/graph.js" defer></script>
   <script>
     // Device-local day (A5): the phone's calendar day, not UTC.
     function isoLocalDay(moment) {
