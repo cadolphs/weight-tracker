@@ -1,7 +1,12 @@
 // Minimal app-shell service worker (D-11/ADR-001): pre-cache the shell, serve
 // network-first with cache fallback. GET only -- saves are never queued offline.
-const SHELL_CACHE = "weight-tracker-shell-v1";
-const APP_SHELL = ["/", "/static/uplot.iife.min.js", "/static/uplot.min.css"];
+const SHELL_CACHE = "weight-tracker-shell-v2";
+const APP_SHELL = [
+  "/",
+  "/static/uplot.iife.min.js",
+  "/static/uplot.min.css",
+  "/static/theme.css",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(APP_SHELL)));

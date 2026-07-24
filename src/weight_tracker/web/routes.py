@@ -115,8 +115,10 @@ PWA_MANIFEST: dict[str, Any] = {
     "short_name": "Weight",
     "start_url": "/",
     "display": "standalone",
-    "background_color": "#ffffff",
-    "theme_color": "#111111",
+    # Calm-theme palette alignment (ADR-007 §4): single-value colors matching the
+    # light-scheme tokens in theme.css (Q4 resolved: no per-scheme meta juggling).
+    "background_color": "#FAFAF8",
+    "theme_color": "#1A1A1A",
     "icons": [{"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml"}],
 }
 

@@ -1,0 +1,146 @@
+/* Calm visual theme (US-008/US-009, ADR-007). CUBE-lite layers:
+   Tokens > Global > Composition > Utility (empty) > Block > Exception.
+   Self-contained: no imports, no outside requests, system fonts only. */
+
+/* ---- Tokens (DDD-4, G-4 contract): light :root, dim-light override ---- */
+:root {
+  color-scheme: light dark;
+  --bg: #FAFAF8;
+  --text: #1A1A1A;
+  --text-muted: #555555;
+  --border: #767676;
+  --link: #1F5C99;
+  --btn-bg: #1A1A1A;
+  --btn-text: #FAFAF8;
+  --chart-axis: #444444;
+  --chart-grid: #8A8A8A;
+  --chart-raw: #2E5E9E;
+  --chart-trend: #8F5B00;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 1rem;
+  --space-4: 1.5rem;
+  --space-5: 2.5rem;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161A;
+    --text: #E8E6E3;
+    --text-muted: #A5A29C;
+    --border: #6B6F76;
+    --link: #7FB0E8;
+    --btn-bg: #E8E6E3;
+    --btn-text: #14161A;
+    --chart-axis: #A5A29C;
+    --chart-grid: #6B6F76;
+    --chart-raw: #6FA8DC;
+    --chart-trend: #D9A441;
+  }
+}
+
+/* ---- Global: reset, typography, base elements ---- */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+h1 {
+  font-size: 1.375rem;
+  font-weight: 600;
+  margin-block: 0 var(--space-3);
+}
+
+a {
+  color: var(--link);
+}
+
+label {
+  display: block;
+  color: var(--text-muted);
+  margin-block-end: var(--space-1);
+}
+
+input,
+button {
+  min-height: 44px;
+  font: inherit;
+}
+
+input {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+}
+
+button {
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  border: 1px solid var(--btn-bg);
+  border-radius: var(--space-1);
+  padding: var(--space-1) var(--space-4);
+}
+
+/* ---- Composition: the one main-column flow primitive ---- */
+main {
+  max-width: 28rem;
+  margin-inline: auto;
+  padding: var(--space-4) var(--space-3) var(--space-5);
+}
+
+main > * + * {
+  margin-block-start: var(--space-3);
+}
+
+/* ---- Utility: deliberately empty (ADR-007) ---- */
+
+/* ---- Block: id/element-keyed rules, zero new classes ---- */
+#weight {
+  font-size: 1.5rem;
+}
+
+#trend-glance {
+  font-size: 1.125rem;
+}
+
+#yesterday-reference {
+  color: var(--text-muted);
+  margin-block: var(--space-1) 0;
+}
+
+#save-feedback {
+  margin-block: var(--space-2) 0;
+}
+
+#door-rejection {
+  color: var(--text-muted);
+}
+
+/* ---- Exception: state via attributes, never new classes ---- */
+[hidden] {
+  display: none;
+}
+
+[aria-pressed="true"] {
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
