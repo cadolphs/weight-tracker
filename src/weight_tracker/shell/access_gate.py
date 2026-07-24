@@ -35,8 +35,18 @@ SESSION_COOKIE = "session"
 SESSION_LIFETIME = timedelta(days=90)
 SESSION_MAX_AGE_SECONDS = int(SESSION_LIFETIME.total_seconds())
 
-#: Routes reachable while LOCKED: the login door itself and the health surface.
-OPEN_PATHS = frozenset({"/login", "/healthz"})
+#: The gate's contract: shell assets open, record routes locked. Reachable while
+#: LOCKED are the login door, the health surface, and the no-personal-data shell
+#: (theme/vendored assets, PWA manifest, service worker) per the ADR-003 threat
+#: model -- what is protected is the weight RECORD, not the tracker's clothes.
+OPEN_PATHS = frozenset({"/login", "/healthz", "/manifest.webmanifest", "/sw.js"})
+OPEN_PREFIXES = ("/static/",)
+
+
+def path_is_open(path: str) -> bool:
+    """Pure gate decision: may this path be served without a session?"""
+    return path in OPEN_PATHS or path.startswith(OPEN_PREFIXES)
+
 
 THROTTLE_AFTER_WRONG_GUESSES = 10
 THROTTLE_COOLDOWN = timedelta(minutes=15)
@@ -167,7 +177,8 @@ class AccessGate:
 
 
 def install_access_gate(app: FastAPI, gate: AccessGate, clock: ClockPort) -> None:
-    """Guard all routes behind the gate, leaving only OPEN_PATHS reachable while locked.
+    """Guard all routes behind the gate, leaving only `path_is_open` paths reachable
+    while locked (shell assets open, record routes locked).
 
     Session age is judged against the injected clock (never the wall clock)."""
 
@@ -175,7 +186,7 @@ def install_access_gate(app: FastAPI, gate: AccessGate, clock: ClockPort) -> Non
     async def guard_routes(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        if request.url.path in OPEN_PATHS:
+        if path_is_open(request.url.path):
             return await call_next(request)
         if gate.session_open(request.cookies.get(SESSION_COOKIE), now=clock.now_utc()):
             return await call_next(request)

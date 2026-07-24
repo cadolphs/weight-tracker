@@ -74,6 +74,11 @@ def step_theme_delivered(composition, ctx):
     composition.theme.fetch_delivered(ctx)
 
 
+@then("the calm look is delivered even before the door opens")
+def step_theme_delivered_while_locked(composition, ctx):
+    composition.theme.assert_shell_assets_open_while_locked(ctx)
+
+
 @then("it is dressed for daylight and for dim light alike")
 def step_dressed_for_both(composition, ctx):
     composition.theme.assert_dressed_for_both_lights(ctx)

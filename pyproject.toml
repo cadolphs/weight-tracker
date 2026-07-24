@@ -46,6 +46,7 @@ markers = [
     "adapter_integration: real-I/O coverage for a driven adapter",
     "in_memory: scenario uses in-memory/fake driven adapters",
     "error: error-path or edge-case scenario",
+    "regression: post-delivery bugfix scenario pinning a live-found defect",
     "property: property-shaped criterion (PBT at layers 1-2; example-pinned at layer 3+)",
     "kpi: verifies a KPI observability contract from docs/product/kpi-contracts.yaml",
     "pending: authored by DISTILL, awaiting its DELIVER step (one-scenario-at-a-time)",

@@ -938,6 +938,9 @@ TOUCH_TARGET_RULE = re.compile(r"min-height:\s*44px")
 PRESSED_STATE_RULE = re.compile(r'\[aria-pressed="true"\]')
 #: Reaching beyond the tracker's own walls (G-5: zero external requests).
 OTHER_ORIGIN_MARKS = ("http://", "https://", 'src="//', 'href="//', "url(//", "@import")
+#: Shell assets carrying no personal data (ADR-003 threat model protects the
+#: RECORD): the door's clothes and the PWA shell stay reachable while locked.
+OPEN_SHELL_ASSETS = (THEME_ASSET_PATH, "/manifest.webmanifest", "/sw.js")
 
 
 class ThemeService(_Service):
@@ -1000,6 +1003,23 @@ class ThemeService(_Service):
             f"got {resp.status_code}"
         )
         ctx.theme_css, ctx.theme_bytes = resp.text, len(resp.content)
+
+    def assert_shell_assets_open_while_locked(self, ctx: SimpleNamespace) -> None:
+        """US-008 regression: a cookie-less browser still receives the shell
+        assets (theme, manifest, service worker) -- they carry no personal data
+        (ADR-003), so the door arrives dressed while the record stays locked."""
+        locked = self._locked_browser()
+        answers = {asset: locked.get(asset) for asset in OPEN_SHELL_ASSETS}
+        refused = {a: r.status_code for a, r in answers.items() if r.status_code != 200}
+        assert not refused, (
+            "shell assets carry no personal data and must dress the door even "
+            f"while the record is locked, but the gate refused: {refused}"
+        )
+        ctx.theme_css = answers[THEME_ASSET_PATH].text
+        assert "{" in ctx.theme_css and "--" in ctx.theme_css, (
+            "the locked visitor must receive the stylesheet itself, "
+            f"not a substitute body: {ctx.theme_css[:120]!r}"
+        )
 
     def assert_dressed_for_both_lights(self, ctx: SimpleNamespace) -> None:
         appearances = scheme_token_maps(self._theme_css(ctx))

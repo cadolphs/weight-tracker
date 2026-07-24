@@ -62,6 +62,13 @@ Feature: The tracker looks finished, calm in daylight and dark in the dark
     And the door wears the calm theme
     And every control promises a comfortable touch target
 
+  @driving_port @error @regression @US-008 @contract-shape:pure-function
+  Scenario: The door is dressed even while the record is locked
+    When he visits the tracker in his browser
+    Then the passphrase door is shown rather than a bare refusal
+    And the calm look is delivered even before the door opens
+    And his record stays hidden
+
   @driving_port @error @US-008 @contract-shape:unbounded-preservation
   Scenario: A wrong passphrase is refused as plainly as ever at the themed door
     Given the door wears the calm theme
