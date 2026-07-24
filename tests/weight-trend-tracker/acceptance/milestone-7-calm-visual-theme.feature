@@ -78,20 +78,20 @@ Feature: The tracker looks finished, calm in daylight and dark in the dark
     And the pressed control is marked by more than color alone
     And the chart draws every line from the tracker's single palette
 
-  @pending @driving_port @kpi @US-008 @US-009 @contract-shape:pure-function
+  @driving_port @kpi @US-008 @US-009 @contract-shape:pure-function
   Scenario: Ink and surface keep their contrast promise in any light
     Given the tracker wears the calm theme
     When its daylight and dim-light appearances are examined
     Then every piece of text stands clearly against its surface
     And every edge, line and stroke stands apart from its surface
 
-  @pending @driving_port @kpi @error @US-008 @contract-shape:pure-function
+  @driving_port @kpi @error @US-008 @contract-shape:pure-function
   Scenario: Dim light is never served the daylight palette by accident
     Given the tracker wears the calm theme
     When its daylight and dim-light appearances are examined
     Then the dim-light appearance answers for every color the daylight one names
 
-  @pending @driving_port @kpi @US-008 @US-009 @contract-shape:pure-function
+  @driving_port @kpi @US-008 @US-009 @contract-shape:pure-function
   Scenario: The finished look costs almost nothing
     Given the tracker wears the calm theme
     When the cost of the new look is tallied
@@ -99,7 +99,7 @@ Feature: The tracker looks finished, calm in daylight and dark in the dark
     And no screen reaches beyond the tracker's own walls
     And the morning screen carries no new moving parts
 
-  @pending @driving_port @error @US-008 @contract-shape:bounded-change
+  @driving_port @error @US-008 @contract-shape:bounded-change
   Scenario: A missing theme never blocks the morning weigh-in
     Given Clemens has unlocked the tracker with his passphrase
     And the entry screen wears the calm theme
