@@ -30,6 +30,33 @@
   const emptyInvite = document.getElementById("empty-invite");
   let chart = null;
 
+  // Deliberate study (ADR-009): each surface names itself by its mount, so the
+  // beacon speaks the closed vocabulary without any configuration.
+  const studySurface = page.id === "home-graph" ? "home" : "history";
+
+  // Fire-and-forget study beacon: an explicit lens/scale tap is the deliberate
+  // KPI-3 signal. Loss is acceptable, interference is not -- a lost, refused,
+  // or failed beacon must never touch the chart, the lens, or the chosen scale.
+  function noteDeliberateStudy(control, value) {
+    const signal = JSON.stringify({ surface: studySurface, control, value });
+    try {
+      if (
+        navigator.sendBeacon &&
+        navigator.sendBeacon("/telemetry/trend-study", new Blob([signal], { type: "application/json" }))
+      ) {
+        return;
+      }
+      fetch("/telemetry/trend-study", {
+        method: "POST",
+        keepalive: true,
+        headers: { "content-type": "application/json" },
+        body: signal,
+      }).catch(() => {});
+    } catch (_lost) {
+      // zero UI effect: the tap's own render path never waits on the beacon
+    }
+  }
+
   function dailyGridSeries(entries) {
     const weightByDay = new Map(entries.map((e) => [e.date, e.weight_kg]));
     const dayStamps = entries.map((e) => Date.parse(e.date + "T00:00:00Z")).sort((a, b) => a - b);
@@ -138,11 +165,19 @@
     await showGraph(page.dataset.scale);
   }
 
+  // Explicit taps beacon; the ambient first render below and the scheme-flip
+  // repaint never do (A19: ambient adds 0 to the deliberate study count).
   for (const button of document.querySelectorAll("#scale-picker button")) {
-    button.addEventListener("click", () => showGraph(button.dataset.window));
+    button.addEventListener("click", () => {
+      noteDeliberateStudy("scale", button.dataset.window);
+      showGraph(button.dataset.window);
+    });
   }
   for (const button of document.querySelectorAll("#view-toggle button")) {
-    button.addEventListener("click", () => showView(button.dataset.lens));
+    button.addEventListener("click", () => {
+      noteDeliberateStudy("lens", button.dataset.lens);
+      showView(button.dataset.lens);
+    });
   }
   // Mid-session scheme flip (US-009): re-render through the existing showGraph,
   // so the selected lens (page.dataset.view) and time scale survive by construction.

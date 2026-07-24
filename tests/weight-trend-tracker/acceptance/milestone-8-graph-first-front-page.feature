@@ -37,7 +37,7 @@ Feature: The morning opens on the whole picture
     Then the deliberate trend-study count for this week is 0
     And the morning graph delivery is on the record
 
-  @pending @driving_port @driving_adapter @kpi @real-io @US-010 @contract-shape:bounded-change
+  @driving_port @driving_adapter @kpi @real-io @US-010 @contract-shape:bounded-change
   Scenario: Choosing a lens or scale is deliberate study
     Given his weight has been falling for the last two weeks
     And he has opened the entry screen
@@ -118,14 +118,14 @@ Feature: The morning opens on the whole picture
     Then the recent list offers no way to edit or delete
     And every recent value equals the stored entry for its day
 
-  @pending @driving_port @driving_adapter @error @real-io @US-010 @contract-shape:unbounded-preservation
+  @driving_port @driving_adapter @error @real-io @US-010 @contract-shape:unbounded-preservation
   Scenario: A garbled study signal is turned away without a mark
     Given his weight has been falling for the last two weeks
     When a study signal arrives speaking words the tracker does not know
     Then the signal is refused as unintelligible, never as a breakdown
     And no deliberate study is recorded for it
 
-  @pending @driving_port @driving_adapter @error @US-010 @contract-shape:unbounded-preservation
+  @driving_port @driving_adapter @error @US-010 @contract-shape:unbounded-preservation
   Scenario: A stranger's study signal leaves no mark
     When a stranger sends a study signal without the passphrase
     Then the stranger is turned away at the door

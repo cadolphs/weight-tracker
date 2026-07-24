@@ -37,6 +37,7 @@ from weight_tracker.core.types import (
     Saved,
     TimeScale,
     TrendPoint,
+    ViewMode,
     entries_in_window,
     parse_time_scale,
     window_start,
@@ -69,6 +70,40 @@ TREND_GLANCE_SHOWN_EVENT = "trend.glance.shown"
 HOME_GRAPH_SHOWN_EVENT = "home.graph.shown"
 TREND_STUDY_OPENED_EVENT = "trend.study.opened"
 TREND_STUDY_INTERACTION_EVENT = "trend.study.interaction"
+
+#: The study beacon's closed vocabulary (ADR-009): the ONLY words a signal may
+#: speak. Surface/control name the two graph surfaces and their two explicit
+#: controls; value tokens derive from the core's own lens and scale sets
+#: (Mandate-12: reuse, no new enums). Anything else never reaches the trail.
+STUDY_SURFACES = frozenset({"home", "history"})
+STUDY_CONTROLS = frozenset({"lens", "scale"})
+STUDY_VALUES = frozenset(lens.value for lens in ViewMode) | frozenset(
+    scale.value for scale in TimeScale
+)
+STUDY_VOCABULARY: dict[str, frozenset[str]] = {
+    "surface": STUDY_SURFACES,
+    "control": STUDY_CONTROLS,
+    "value": STUDY_VALUES,
+}
+
+
+def parse_study_signal(body: object) -> dict[str, str] | None:
+    """Total parse of a beacon body against the closed vocabulary (ADR-009).
+
+    Pure judgment, `parse_time_scale` precedent: the validated
+    {surface, control, value} tokens when every field speaks the vocabulary;
+    None for ANYTHING else -- wrong shape, unknown words, non-string values.
+    Free text cannot survive this gate, so it can never reach the append-only
+    trail (unbounded preservation). The core judges; the shell phrases 400."""
+    if not isinstance(body, dict) or set(body) != set(STUDY_VOCABULARY):
+        return None
+    if any(
+        not isinstance(body[field], str) or body[field] not in spoken
+        for field, spoken in STUDY_VOCABULARY.items()
+    ):
+        return None
+    return {field: body[field] for field in STUDY_VOCABULARY}
+
 
 #: TrendProjection driving port: read-only, derived-never-stored (ADR-004) -- a pure
 #: function of the FULL entry set, windowed on the output. Wired at the composition root.
@@ -235,6 +270,13 @@ def _log_auth_event(name: str) -> None:
 def _log_glance_degraded(failure: Exception) -> None:
     """Structured degrade trail: the glance failed and was hidden, never silently."""
     _log_structured({"event": "trend.glance.degraded", "error": str(failure)})
+
+
+def _log_study_append_degraded(failure: Exception) -> None:
+    """Structured degrade trail: a study mark could not be appended (Forge
+    condition 3) -- the beacon still answers 2xx, fire-and-forget never
+    becomes a client-visible fault, and the loss is never silent."""
+    _log_structured({"event": "trend.study.append_degraded", "error": str(failure)})
 
 
 def build_router(
@@ -425,6 +467,33 @@ def build_router(
             name="graph.html",
             context={"view": view, "scale": time_scale_or_bad_request(scale).value},
         )
+
+    @router.post("/telemetry/trend-study")
+    async def study_beacon(request: Request) -> Response:
+        """Deliberate-study beacon (ADR-009, KPI-3): one explicit lens/scale tap
+        on either graph surface, fire-and-forget, behind the AccessGate like
+        every record route. The pure vocabulary gate judges the body; a signal
+        speaking the closed vocabulary appends exactly one
+        trend.study.interaction carrying the VALIDATED tokens only. Anything
+        else -- unparseable, misshapen, unknown words -- is answered 400 with
+        the trail untouched. A failing append is swallowed with a structured
+        log (Forge condition 3): the beacon answers only 2xx or 400, never 500."""
+        try:
+            submitted = await request.json()
+        except Exception:  # not JSON at all: a garbled signal, never a server error
+            submitted = None
+        signal = parse_study_signal(submitted)
+        if signal is None:
+            return JSONResponse({"detail": "unknown study vocabulary"}, status_code=400)
+        try:
+            store.append_event(
+                ts=clock.now_utc().isoformat(),
+                name=TREND_STUDY_INTERACTION_EVENT,
+                payload=json.dumps(signal),
+            )
+        except Exception as failure:
+            _log_study_append_degraded(failure)
+        return Response(status_code=204)
 
     @router.get("/static/{asset_name}")
     def static_asset(asset_name: str) -> FileResponse:
