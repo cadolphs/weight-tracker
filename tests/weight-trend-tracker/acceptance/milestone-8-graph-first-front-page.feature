@@ -30,7 +30,7 @@ Feature: The morning opens on the whole picture
     And the front page drives the same graph engine as the History page
     And the entry screen is ready for immediate typing
 
-  @pending @driving_port @kpi @real-io @adapter-integration @US-010 @contract-shape:bounded-change
+  @driving_port @kpi @real-io @adapter-integration @US-010 @contract-shape:bounded-change
   Scenario: An ambient morning never counts as deliberate study
     Given his weight has been falling for the last two weeks
     When he opens on the morning picture, logs "82.2" for today and pockets the phone
@@ -54,7 +54,7 @@ Feature: The morning opens on the whole picture
     And the refreshed morning picture includes today
     And the repaint added nothing to the deliberate trend-study count
 
-  @pending @driving_port @error @US-010 @contract-shape:bounded-change
+  @driving_port @error @US-010 @contract-shape:bounded-change
   Scenario: A graph hiccup never blocks the log
     Given his weight has been falling for the last two weeks
     And the trend series cannot be computed

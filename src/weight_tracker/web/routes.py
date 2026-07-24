@@ -6,10 +6,11 @@ built over the entry store port, the access gate, and the clock port.
 
 Current scope: login, save-entry (confirmed and rejected paths, inline
 messaging), history read-back, trend read-back (smoothed line, windowed
-output, trend-view telemetry), graph page (trend default lens, Trend/Raw
-toggle sharing the selected window), entry screen (instant typing,
-yesterday anchor), PWA manifest + minimal service worker (app-shell cache
-only, D-11), telemetry counts with the KPI-1 speed report.
+output, pure read per ADR-009), graph page (trend default lens, Trend/Raw
+toggle sharing the selected window, one trend.study.opened per open),
+entry screen (instant typing, yesterday anchor, ambient home.graph.shown
+delivery), PWA manifest + minimal service worker (app-shell cache only,
+D-11), telemetry counts with the KPI-1 speed report.
 """
 
 from __future__ import annotations
@@ -58,8 +59,16 @@ from weight_tracker.shell.access_gate import (
 )
 
 ENTRY_SAVED_EVENT = "entry.saved"
+#: Emission RETIRED by ADR-009 (2026-07-24): GET /trend is a pure read. The name
+#: remains so /stats can keep reading the frozen-historical rows on the trail.
 TREND_VIEW_OPENED_EVENT = "trend.view.opened"
 TREND_GLANCE_SHOWN_EVENT = "trend.glance.shown"
+#: Intent telemetry (ADR-009): intent is recorded on intent-expressing surfaces,
+#: never inferred on data reads. Ambient = the front page delivering the graph;
+#: deliberate = a History-page open or an explicit lens/scale tap (beacon).
+HOME_GRAPH_SHOWN_EVENT = "home.graph.shown"
+TREND_STUDY_OPENED_EVENT = "trend.study.opened"
+TREND_STUDY_INTERACTION_EVENT = "trend.study.interaction"
 
 #: TrendProjection driving port: read-only, derived-never-stored (ADR-004) -- a pure
 #: function of the FULL entry set, windowed on the output. Wired at the composition root.
@@ -310,6 +319,14 @@ def build_router(
         (fix-device-day-reads): the recent-days map rides inside the existing
         inline script, and the client resolves its own device-local yesterday."""
         entries = store.all_entries()
+        if entries:
+            # Ambient graph presence (ADR-009, KPI-7): a data-available-at-render
+            # proxy, the glance precedent (Q3) -- entries exist, so the morning
+            # picture is delivered, even if the client's series fetch later fails.
+            # Per-delivery, no per-day dedup (D-14: pairing is computed on /stats).
+            store.append_event(
+                ts=clock.now_utc().isoformat(), name=HOME_GRAPH_SHOWN_EVENT, payload="{}"
+            )
         return _templates.TemplateResponse(
             request=request,
             name="index.html",
@@ -379,18 +396,13 @@ def build_router(
         """Smoothed trend line for the selected scale (full recompute per read, ADR-004).
 
         The window is framed by the phone's claimed day (?today=, validated and
-        skew-bounded); event timestamps stay UTC by design. Every open is a KPI-3
-        engagement signal: one trend.view.opened event goes onto the append-only
-        trail before the line is returned."""
+        skew-bounded); event timestamps stay UTC by design. A PURE READ (ADR-009):
+        the trend.view.opened emission is retired -- intent is recorded where it
+        is expressed (/graph render, the study beacon), never inferred here.
+        Historical trend.view.opened rows stay on the append-only trail."""
         selected_scale = time_scale_or_bad_request(scale)
-        opened_at = clock.now_utc()
-        day_frame = day_frame_or_bad_request(today, opened_at.date())
+        day_frame = day_frame_or_bad_request(today, clock.now_utc().date())
         points = trend_series_in(store.all_entries(), selected_scale, day_frame)
-        store.append_event(
-            ts=opened_at.isoformat(),
-            name=TREND_VIEW_OPENED_EVENT,
-            payload=json.dumps({"scale": selected_scale.value}),
-        )
         return {
             "points": [
                 {"date": point.day.isoformat(), "trend_kg": point.trend_kg} for point in points
@@ -401,7 +413,13 @@ def build_router(
     def graph_page(request: Request, view: str = "trend", scale: str = "3M") -> Response:
         """Graph page (uPlot, vendored). Trend is the default lens on open (A4);
         view and scale round-trip through the query string, so toggling the lens
-        never loses the chosen window. The core windows; this shell renders."""
+        never loses the chosen window. The core windows; this shell renders.
+
+        A History-page open IS deliberate trend study (ADR-009, KPI-3): one
+        trend.study.opened event per open, regardless of the ?view=/?scale= deep link."""
+        store.append_event(
+            ts=clock.now_utc().isoformat(), name=TREND_STUDY_OPENED_EVENT, payload="{}"
+        )
         return _templates.TemplateResponse(
             request=request,
             name="graph.html",
@@ -420,6 +438,10 @@ def build_router(
         kpi_week_start = _kpi_week_start(clock.now_utc().date())
         return {
             "entry_logged_count": store.count_events(ENTRY_SAVED_EVENT),
+            # FROZEN-HISTORICAL (ADR-009 instrument switch, labeled per Forge
+            # condition 2): the trend.view.opened emission retired 2026-07-24;
+            # this counter reads the preserved pre-switch rows and can only age.
+            # The live KPI-3 counter is trend_study_this_week below.
             "trend_view_opened_count": store.count_events(TREND_VIEW_OPENED_EVENT),
             # Ambient glance deliveries over the SAME rolling week as the deliberate
             # trend views beside it (KPI-3/KPI-5 separation read from the real trail);
@@ -428,6 +450,17 @@ def build_router(
                 TREND_GLANCE_SHOWN_EVENT, kpi_week_start
             ),
             "trend_views_this_week": count_events_since(TREND_VIEW_OPENED_EVENT, kpi_week_start),
+            # KPI-3 live (ADR-009, Q2): raw rolling-week count of deliberate study --
+            # History-page opens + explicit lens/scale taps -- same week frame as
+            # trend_views_this_week; any session collapse is a read-time refinement.
+            "trend_study_this_week": (
+                count_events_since(TREND_STUDY_OPENED_EVENT, kpi_week_start)
+                + count_events_since(TREND_STUDY_INTERACTION_EVENT, kpi_week_start)
+            ),
+            # KPI-7 (ADR-009): ambient morning-graph deliveries, same rolling week.
+            "home_graph_shown_this_week": count_events_since(
+                HOME_GRAPH_SHOWN_EVENT, kpi_week_start
+            ),
             "speed": speed_summary(entry_ms_samples_since(ENTRY_SAVED_EVENT, kpi_week_start)),
         }
 

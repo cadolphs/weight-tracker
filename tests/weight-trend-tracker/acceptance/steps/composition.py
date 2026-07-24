@@ -22,12 +22,16 @@ HTTP surface contract (executable spec for DELIVER -- see build_app docstring):
                                               | {"outcome":"rejected",
                                                  "reason":<RejectionReason value>,
                                                  "echo":<raw input>}   (401 when locked)
-    GET  /trend?scale=...                    -> {"points":[{"date","trend_kg"}...]} (+event)
+    GET  /trend?scale=...                    -> {"points":[{"date","trend_kg"}...]}
+                                                (pure read, ADR-009 -- no event)
     GET  /graph?view=trend|raw&scale=...     -> HTML with data-view=... data-scale=...
+                                                (+1 trend.study.opened per open)
     GET  /                                   -> entry screen HTML (autofocus, inputmode="decimal",
                                                 "yesterday: X kg" when it exists)
     GET  /stats                              -> {"entry_logged_count","trend_view_opened_count",
-                                                 "trend_views_this_week",
+                                                 "trend_views_this_week" (both frozen-historical
+                                                 since ADR-009), "trend_study_this_week",
+                                                 "home_graph_shown_this_week",
                                                  "speed":{"median_ms","p90_ms","sample_count"}}
     GET  /healthz                            -> 200 {"status":"ok",...} without auth
     GET  /manifest.webmanifest               -> 200 PWA manifest
@@ -113,6 +117,10 @@ class TrackerComposition:
         self.glance = GlanceService(self)
         self.theme = ThemeService(self)
         self.day_frame = DayFrameService(self)
+        self.home_graph = HomeGraphService(self)
+        self.recent_list = RecentListService(self)
+        self.history_record = HistoryRecordService(self)
+        self.study = StudyService(self)
 
     # -- composition root (lazy: nothing is built until first use) ----------------
 
@@ -461,6 +469,12 @@ class TrendService(_Service):
         return [(p["date"], p["trend_kg"]) for p in resp.json()["points"]]
 
     def open(self, scale: TimeScale, ctx: SimpleNamespace) -> None:
+        # Pinned inherited-AT amendment (graph-first-home, ADR-009 -- feature-delta
+        # Renegotiations #2): "opening the trend" is a History-page visit. The page
+        # open is the deliberate KPI-3 signal (milestone-4 engagement scenarios);
+        # the series fetch beneath it is a pure read. Scenario wording unchanged.
+        page = self.comp.actor().get("/graph", params={"scale": scale.value})
+        assert page.status_code == 200, f"the trend page did not open: {page.status_code}"
         ctx.trend_scale = scale
         ctx.trend = self._series(scale)
 
@@ -630,9 +644,13 @@ class StatsService(_Service):
         )
 
     def assert_trend_views_this_week(self, n: int) -> None:
+        # Pinned inherited-AT amendment (graph-first-home, ADR-009): KPI-3's home
+        # moved -- the weekly deliberate count now reads trend_study_this_week
+        # (STUDY_COUNT_KEY); trend_views_this_week stays served but frozen-historical.
         body = self.comp.observer().get("/stats").json()
-        assert body["trend_views_this_week"] == n, (
-            f"expected {n} trend view(s) counted this week, got {body['trend_views_this_week']}"
+        assert body[STUDY_COUNT_KEY] == n, (
+            f"expected {n} deliberate trend stud(y/ies) counted this week, "
+            f"got {body[STUDY_COUNT_KEY]}"
         )
 
 
@@ -697,8 +715,10 @@ class GlanceService(_Service):
         GET  /stats   -> gains `"trend_glance_shown_count"` (glance deliveries over the
                          same rolling 7-day window as trend_views_this_week, KPI-3/5
                          separation).
-        GET  /trend   -> UNTOUCHED: still emits `trend.view.opened` per open (KPI-3
-                         separation is structural -- the glance never touches it).
+        GET  /trend   -> a PURE READ since ADR-009 (graph-first-home): the
+                         trend.view.opened emission is retired; deliberate study
+                         is counted on /graph opens (KPI-3 separation stays
+                         structural -- the glance never touches either).
 
     Oracle: the shipped pure `trend_series` (OUT-5-verified) plus the ADR-006 PINNED
     display expressions encoded verbatim below (they ARE the spec, not a re-derivation):
@@ -810,8 +830,11 @@ class GlanceService(_Service):
             self.comp.actor().get("/")
 
     def study_trend(self, times: int) -> None:
+        # Pinned inherited-AT amendment (graph-first-home, ADR-009 -- pinned on the
+        # milestone-6 scenario itself): deliberate study redirects from the retired
+        # GET /trend emission to History-page opens. Wording unchanged, never silent.
         for _ in range(times):
-            self.comp.actor().get("/trend", params={"scale": TimeScale.ONE_MONTH.value})
+            self.comp.actor().get("/graph", params={"scale": TimeScale.ONE_MONTH.value})
 
     # -- outcome assertions --------------------------------------------------------
 
@@ -968,6 +991,10 @@ OTHER_ORIGIN_MARKS = ("http://", "https://", 'src="//', 'href="//', "url(//", "@
 #: RECORD): the door's clothes and the PWA shell stay reachable while locked.
 OPEN_SHELL_ASSETS = (THEME_ASSET_PATH, "/manifest.webmanifest", "/sw.js")
 
+#: G-5 script clause as consciously renegotiated by graph-first-home (2026-07-24):
+#: the ONLY script sources the morning screen may carry -- same-origin, vendored.
+SANCTIONED_ENTRY_SCRIPTS = frozenset({"/static/uplot.iife.min.js", "/static/graph.js"})
+
 
 class ThemeService(_Service):
     """Theme delivery + G-4/G-5 verification (US-008/US-009, ADR-007, Q1/Q6).
@@ -1120,12 +1147,21 @@ class ThemeService(_Service):
             f"no screen may reach beyond the tracker's own walls (G-5), but: {reaching}"
         )
 
-    def assert_no_new_entry_moving_parts(self, ctx: SimpleNamespace) -> None:
+    def assert_entry_moving_parts_own(self, ctx: SimpleNamespace) -> None:
+        """G-5 script clause, CONSCIOUSLY renegotiated 2026-07-24 (graph-first-home
+        DISTILL, per the ADR-008 disclosure and the DISCUSS System-Constraints flag):
+        the literal "0 new entry-screen scripts" count cannot survive a front-page
+        graph; the surviving intent -- zero external origins, no third-party cost --
+        is pinned as: exactly one inline script plus, at most, the two SAME-ORIGIN
+        vendored chart scripts. Never a silent deletion."""
         entry_html = ctx.dressed_pages[Screen.ENTRY]
-        scripts = entry_html.count("<script")
-        assert scripts == 1 and "<script src" not in entry_html, (
-            "the morning screen must gain no new moving parts (G-5: zero new "
-            f"entry-screen scripts beyond the existing inline one), found {scripts}"
+        sources = re.findall(r'<script[^>]*\bsrc="([^"]+)"', entry_html)
+        foreign = [src for src in sources if src not in SANCTIONED_ENTRY_SCRIPTS]
+        inline_count = entry_html.count("<script") - len(sources)
+        assert inline_count == 1 and not foreign, (
+            "every moving part on the morning screen must be the tracker's own "
+            "(G-5 as renegotiated: one inline script + sanctioned same-origin chart "
+            f"scripts only), found {inline_count} inline and foreign sources {foreign}"
         )
 
     # -- structural promises carried by the asset ------------------------------
@@ -1237,4 +1273,404 @@ class DayFrameService(_Service):
         assert ctx.response.status_code == 400, (
             "a garbled day claim must be turned away with 400 (C6: parse totally, "
             f"never a silent ignore, never a 500), got {ctx.response.status_code}"
+        )
+
+
+# ---------------------------------------------------------------- graph-first home
+
+#: Executable markup contract for graph-first-home (US-010/011/012, DISTILL 2026-07-24):
+#: the front-page graph mounts at id="home-graph" carrying data-view/data-scale
+#: exactly like the History page's #graph-page; the recent list is a server-rendered
+#: <ul id="recent-entries"> of "Fri 24 Jul — 82.2 kg" rows; the History page's
+#: complete record is <ul id="history-entries"> speaking the same row grammar.
+HOME_GRAPH_MOUNT = re.compile(r'<[a-z]+[^>]*id="home-graph"[^>]*>')
+RECENT_LIST_BLOCK = re.compile(r'<ul id="recent-entries".*?</ul>', re.S)
+HISTORY_LIST_BLOCK = re.compile(r'<ul id="history-entries".*?</ul>', re.S)
+LIST_ROW = re.compile(r"<li[^>]*>\s*([^<]+?)\s*</li>")
+TOUCH_AFFORDANCE = re.compile(r"<(a|button|input|form|select|textarea)\b")
+
+#: ADR-009 intent-telemetry read surface (DISTILL contract; Q2 resolved: raw
+#: rolling-week event counts over the SAME week frame as trend_views_this_week,
+#: no read-time session collapse). Deliberate = trend.study.opened +
+#: trend.study.interaction; ambient = home.graph.shown deliveries.
+STUDY_COUNT_KEY = "trend_study_this_week"
+AMBIENT_COUNT_KEY = "home_graph_shown_this_week"
+BEACON_PATH = "/telemetry/trend-study"
+GRAPH_MODULE_PATH = "/static/graph.js"
+ALL_SCALE_WINDOWS = ("1W", "1M", "3M", "6M", "1Y", "ALL")
+
+
+def entry_row_text(day: date, kg: float) -> str:
+    """The one row grammar every entries list speaks (A18): 'Fri 24 Jul — 82.2 kg'."""
+    return f"{day:%a} {day.day} {day:%b} — {kg:.1f} kg"
+
+
+class HomeGraphService(_Service):
+    """Front-page ambient graph (US-010, ADR-008): served mount + full controls +
+    defaults, driven by the same shared engine and the same telemetry-free data
+    reads as the History page. Client paint itself is structural (one extracted
+    module, D-15) and verified at DELIVER dogfood -- the glance/theme precedent."""
+
+    def _today_iso(self) -> str:
+        return (self.comp.device_day or self.comp.fake_clock.today()).isoformat()
+
+    def _ambient_points(self) -> list[dict[str, Any]]:
+        resp = self.comp.observer().get(
+            "/trend", params={"scale": TimeScale.THREE_MONTHS.value, "today": self._today_iso()}
+        )
+        assert resp.status_code == 200, f"the morning series read failed: {resp.status_code}"
+        return resp.json()["points"]
+
+    # -- served shape ---------------------------------------------------------
+
+    def assert_curve_above_form(self, ctx: SimpleNamespace) -> None:
+        html = ctx.response.text
+        mount = HOME_GRAPH_MOUNT.search(html)
+        assert mount, "the front page must offer the trend graph (a #home-graph mount)"
+        assert mount.start() < html.index("<form"), (
+            "the graph must sit ABOVE the entry form (D6/D7)"
+        )
+
+    def assert_full_controls(self, ctx: SimpleNamespace) -> None:
+        html = ctx.response.text
+        for lens in ('data-lens="trend"', 'data-lens="raw"'):
+            assert lens in html, f"the graph must offer the full lens toggle, missing {lens}"
+        missing = [w for w in ALL_SCALE_WINDOWS if f'data-window="{w}"' not in html]
+        assert not missing, f"the scale picker must offer every window (D7), missing {missing}"
+
+    def assert_opens_at_defaults(self, ctx: SimpleNamespace, scale: TimeScale) -> None:
+        mount = HOME_GRAPH_MOUNT.search(ctx.response.text)
+        assert mount, "the front page must offer the trend graph (a #home-graph mount)"
+        for state in ('data-view="trend"', f'data-scale="{scale.value}"'):
+            assert state in mount.group(0), (
+                f"the front-page graph must open at the ambient defaults (A17/D-20), "
+                f"missing {state} on the mount: {mount.group(0)}"
+            )
+
+    def assert_shared_engine(self, ctx: SimpleNamespace) -> None:
+        surfaces = {"front page": ctx.response.text, "History page": self.comp.graph.open().text}
+        missing = [name for name, html in surfaces.items() if GRAPH_MODULE_PATH not in html]
+        assert not missing, (
+            f"both surfaces must drive the ONE shared graph module (ADR-008), missing on: {missing}"
+        )
+        served = self.comp.actor().get(GRAPH_MODULE_PATH)
+        assert served.status_code == 200, (
+            f"the shared graph module must be delivered by the tracker itself, "
+            f"got {served.status_code}"
+        )
+
+    def assert_absent(self, ctx: SimpleNamespace) -> None:
+        assert not HOME_GRAPH_MOUNT.search(ctx.response.text), (
+            "an empty record must keep the front page simple -- no graph area (A18 kin)"
+        )
+
+    def assert_no_focus_theft(self, ctx: SimpleNamespace) -> None:
+        html = ctx.response.text
+        assert html.count("autofocus") == 1, (
+            "exactly one autofocus belongs on the morning screen: the weight field (Q4)"
+        )
+        weight_field = re.search(r'<input[^>]*id="weight"[^>]*>', html)
+        assert weight_field and "autofocus" in weight_field.group(0), (
+            "the weight field must keep the morning focus (D6: keypad-cover accepted, "
+            "focus theft is not)"
+        )
+        assert "tabindex" not in html, "no element may reorder the morning focus (Q4)"
+
+    # -- in-place repaint (A15/D-19) ------------------------------------------
+
+    def note_series_end(self, ctx: SimpleNamespace) -> None:
+        ctx.series_end = self._ambient_points()[-1]["date"]
+
+    def assert_series_includes_today(self, ctx: SimpleNamespace) -> None:
+        last = self._ambient_points()[-1]["date"]
+        assert last == self._today_iso(), (
+            f"the refreshed morning picture must include today's entry, the line ends at {last}"
+        )
+
+    # -- fault injection (no new driven adapters => degrade paths, DESIGN) ----
+
+    def break_series(self, monkeypatch: Any) -> None:
+        """The trend series computation fails: the graph data reads must degrade
+        (absent area client-side) while entry, save, and confirmation are untouched."""
+
+        def failing_series(*_args: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError("injected trend-series failure (acceptance fault injection)")
+
+        for target in (
+            "weight_tracker.core.trend.trend_series",
+            "weight_tracker.web.routes.trend_series_in",
+            "weight_tracker.composition.trend_series",
+        ):
+            monkeypatch.setattr(target, failing_series, raising=False)
+        self.comp.system.restart()
+
+    def series_read_admits_trouble(self, ctx: SimpleNamespace) -> None:
+        before = self.comp.study.trail_counts()
+        troubled = False
+        try:
+            resp = self.comp.actor().get("/trend", params={"scale": "3M"})
+            troubled = resp.status_code >= 400
+        except Exception:
+            troubled = True
+        assert troubled, "a broken series must not pretend to answer"
+        assert self.comp.study.trail_counts() == before, (
+            "a failed series read must leave no mark on the trail (pure read, D-16)"
+        )
+
+
+class RecentListService(_Service):
+    """Last-7 entries list (US-011, A18/D9): server-rendered, display-only,
+    entries not days, gaps simply absent; refreshed on the save response (D-19)."""
+
+    def _rows(self, html: str) -> list[str]:
+        block = RECENT_LIST_BLOCK.search(html)
+        assert block, "the front page must carry the recent-entries list (#recent-entries)"
+        return [match.group(1).strip() for match in LIST_ROW.finditer(block.group(0))]
+
+    def _stored_rows(self, limit: int = 7) -> list[str]:
+        entries = self.comp.observer().get("/entries", params={"scale": "ALL"}).json()["entries"]
+        return [
+            entry_row_text(date.fromisoformat(e["date"]), e["weight_kg"]) for e in entries[:limit]
+        ]
+
+    def assert_last_seven(self, ctx: SimpleNamespace) -> None:
+        rows = self._rows(ctx.response.text)
+        expected = self._stored_rows()
+        assert rows == expected, (
+            f"the recent list must show the last 7 ENTRIES newest first (A18), "
+            f"expected {expected}, shown {rows}"
+        )
+
+    def assert_begins_with(self, ctx: SimpleNamespace, text: str) -> None:
+        rows = self._rows(ctx.response.text)
+        assert rows and rows[0] == text, (
+            f"the recent list must begin with {text!r}, it begins with "
+            f"{rows[0] if rows else 'nothing'!r}"
+        )
+
+    def screen_begins_with(self, ctx: SimpleNamespace, text: str) -> None:
+        probe = SimpleNamespace(response=self.comp.screen.open_entry())
+        self.assert_begins_with(probe, text)
+
+    def assert_day_absent(self, ctx: SimpleNamespace, day: date) -> None:
+        rows = self._rows(ctx.response.text)
+        marker = f"{day:%a} {day.day} {day:%b}"
+        offenders = [row for row in rows if marker in row or "0.0 kg" in row]
+        assert not offenders, (
+            f"a missed day must be simply absent -- no zero, no placeholder (A18), "
+            f"but the list carries {offenders}"
+        )
+
+    def assert_exactly(self, ctx: SimpleNamespace, count: int) -> None:
+        rows = self._rows(ctx.response.text)
+        expected = self._stored_rows(limit=count)
+        assert rows == expected and len(rows) == count, (
+            f"a young record must show exactly its {count} entries, shown {rows}"
+        )
+
+    def assert_none(self, ctx: SimpleNamespace) -> None:
+        assert not RECENT_LIST_BLOCK.search(ctx.response.text), (
+            "an empty record must show no recent list at all (A18)"
+        )
+
+    def assert_display_only(self, ctx: SimpleNamespace) -> None:
+        block = RECENT_LIST_BLOCK.search(ctx.response.text)
+        assert block, "the front page must carry the recent-entries list (#recent-entries)"
+        touched = TOUCH_AFFORDANCE.search(block.group(0))
+        assert not touched, (
+            f"looking is not touching (D9): the recent list must offer no affordances, "
+            f"found <{touched.group(1)}>"
+        )
+
+    def assert_values_match_store(self, ctx: SimpleNamespace) -> None:
+        rows = self._rows(ctx.response.text)
+        expected = self._stored_rows(limit=len(rows))
+        assert rows == expected, (
+            f"every recent value must equal the stored entry for its day "
+            f"(single source), expected {expected}, shown {rows}"
+        )
+
+    def assert_save_response_top(self, ctx: SimpleNamespace) -> None:
+        payload = ctx.response.json()
+        recent = payload.get("recent")
+        assert recent is not None, (
+            "the save response must hand back the refreshed recent list (`recent`, D-19)"
+        )
+        today = self.comp.resolve_day("today").isoformat()
+        assert recent and recent[0]["date"] == today and len(recent) <= 7, (
+            f"the refreshed recent list must carry today's save on top "
+            f"(<=7 entries, newest first), got {recent}"
+        )
+
+
+class HistoryRecordService(_Service):
+    """Complete record on the History page (US-012, D-17): server-rendered from
+    the same all-entries read the raw plot draws, ALWAYS the whole record
+    regardless of the chart's window; /graph behaviors preserved (A16)."""
+
+    def open_timed(self, ctx: SimpleNamespace) -> Any:
+        started = time.monotonic()
+        resp = self.comp.actor().get("/graph")
+        ctx.elapsed_ms = (time.monotonic() - started) * 1000
+        return resp
+
+    def _rows(self, html: str) -> list[str]:
+        block = HISTORY_LIST_BLOCK.search(html)
+        assert block, "the History page must carry the complete record (#history-entries)"
+        return [match.group(1).strip() for match in LIST_ROW.finditer(block.group(0))]
+
+    def _all_stored_rows(self) -> list[str]:
+        entries = self.comp.observer().get("/entries", params={"scale": "ALL"}).json()["entries"]
+        return [entry_row_text(date.fromisoformat(e["date"]), e["weight_kg"]) for e in entries]
+
+    def assert_complete_newest_first(self, ctx: SimpleNamespace) -> None:
+        html = ctx.response.text
+        rows = self._rows(html)
+        expected = self._all_stored_rows()
+        assert rows == expected, (
+            f"the complete record must list every stored entry newest first "
+            f"({len(expected)} entries), the page lists {len(rows)}"
+        )
+        assert html.index('id="chart"') < html.index('id="history-entries"'), (
+            "the complete record belongs BENEATH the graph (D8)"
+        )
+
+    def assert_days_absent(self, ctx: SimpleNamespace, start: date, end: date) -> None:
+        rows = self._rows(ctx.response.text)
+        gap_days = [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
+        offenders = [
+            row for row in rows for day in gap_days if f"{day:%a} {day.day} {day:%b}" in row
+        ]
+        assert not offenders, (
+            f"days without an entry must be absent from the list exactly as they are "
+            f"gaps in the plot, but the list carries {offenders}"
+        )
+
+    def assert_matches_raw_plot(self, ctx: SimpleNamespace) -> None:
+        rows = self._rows(ctx.response.text)
+        plotted = self._all_stored_rows()  # the raw plot draws from the same /entries read
+        assert rows == plotted, (
+            f"the list and the plot must tell the same story (single source, D-18): "
+            f"list {len(rows)} rows vs stored {len(plotted)} entries"
+        )
+
+    def assert_back_link(self, ctx: SimpleNamespace) -> None:
+        assert 'href="/"' in ctx.response.text, (
+            "the way back to today's entry must stay one tap away (A16)"
+        )
+
+    def assert_invite_offered(self, ctx: SimpleNamespace) -> None:
+        assert 'id="empty-invite"' in ctx.response.text, (
+            "an empty record must still offer the first-log invite (A16)"
+        )
+
+    def assert_none(self, ctx: SimpleNamespace) -> None:
+        assert not HISTORY_LIST_BLOCK.search(ctx.response.text), (
+            "an empty record renders no list -- only the first-log invite (A16)"
+        )
+
+    def assert_ready_within(self, ctx: SimpleNamespace, budget_ms: int) -> None:
+        assert ctx.response.status_code == 200
+        assert ctx.elapsed_ms <= budget_ms, (
+            f"the History page took {ctx.elapsed_ms:.0f} ms with the complete record, "
+            f"budget {budget_ms} ms (G-2 extended)"
+        )
+
+
+class StudyService(_Service):
+    """Intent telemetry (ADR-009): deliberate study = History-page opens +
+    explicit lens/scale taps (the beacon, closed vocabulary); ambient = home
+    graph deliveries. KPI-3 purity is asserted on the /stats read surface."""
+
+    def _stats(self) -> dict[str, Any]:
+        return self.comp.observer().get("/stats").json()
+
+    def deliberate_count(self) -> int:
+        count = self._stats().get(STUDY_COUNT_KEY)
+        assert count is not None, (
+            f"/stats must serve {STUDY_COUNT_KEY} -- KPI-3's new home (ADR-009)"
+        )
+        return count
+
+    def trail_counts(self) -> dict[str, Any]:
+        body = self._stats()
+        keys = (STUDY_COUNT_KEY, AMBIENT_COUNT_KEY, "trend_view_opened_count", "entry_logged_count")
+        return {key: body.get(key) for key in keys}
+
+    # -- journey moves --------------------------------------------------------
+
+    def log_only_morning(self, ctx: SimpleNamespace, raw_weight: str) -> None:
+        """The ambient path end-to-end: open, ambient fetch, save, post-save
+        refetch -- exactly what a log-only morning drives, and nothing else."""
+        actor, today = self.comp.actor(), self.comp.resolve_day("today").isoformat()
+        ctx.response = actor.get("/")
+        actor.get("/trend", params={"scale": "3M", "today": today})
+        self.comp.logging.record("today", raw_weight)
+        actor.get("/trend", params={"scale": "3M", "today": today})
+
+    def tap(self, surface: str, control: str, value: str) -> Any:
+        resp = self.comp.actor().post(
+            BEACON_PATH, json={"surface": surface, "control": control, "value": value}
+        )
+        assert resp.status_code < 300, (
+            f"an explicit {control} tap must be accepted as deliberate study "
+            f"(the beacon, ADR-009), got {resp.status_code}"
+        )
+        return resp
+
+    def choose_scale_then_raw(self, ctx: SimpleNamespace, window: str) -> None:
+        ctx.study_before = self._stats().get(STUDY_COUNT_KEY) or 0
+        self.tap("home", "scale", window)
+        self.tap("home", "lens", "raw")
+
+    def send_garbled(self, ctx: SimpleNamespace) -> None:
+        ctx.trail_before = self.trail_counts()
+        ctx.beacon_response = self.comp.actor().post(
+            BEACON_PATH, json={"surface": "kitchen", "control": "mood", "value": "loud"}
+        )
+
+    def stranger_taps(self, ctx: SimpleNamespace) -> None:
+        from fastapi.testclient import TestClient
+
+        ctx.trail_before = self.trail_counts()
+        stranger = TestClient(self.comp._build(), raise_server_exceptions=True)
+        ctx.beacon_response = stranger.post(
+            BEACON_PATH, json={"surface": "home", "control": "scale", "value": "1Y"}
+        )
+
+    # -- outcome assertions ---------------------------------------------------
+
+    def assert_deliberate(self, expected: int) -> None:
+        count = self.deliberate_count()
+        assert count == expected, (
+            f"the deliberate trend-study count must read {expected} (A19), /stats reads {count}"
+        )
+
+    def assert_ambient_delivery(self) -> None:
+        count = self._stats().get(AMBIENT_COUNT_KEY)
+        assert count is not None, (
+            f"/stats must serve {AMBIENT_COUNT_KEY} -- KPI-7's instrument (ADR-009)"
+        )
+        assert count >= 1, "the morning graph delivery must be on the record (KPI-7)"
+
+    def assert_taps_counted(self, ctx: SimpleNamespace, taps: int) -> None:
+        self.assert_deliberate(getattr(ctx, "study_before", 0) + taps)
+
+    def assert_refused_unintelligible(self, ctx: SimpleNamespace) -> None:
+        assert ctx.beacon_response.status_code == 400, (
+            f"an unknown study vocabulary must be refused with 400 -- never served, "
+            f"never a 500 (closed vocabulary, ADR-009), got "
+            f"{ctx.beacon_response.status_code}"
+        )
+
+    def assert_stranger_turned_away(self, ctx: SimpleNamespace) -> None:
+        assert ctx.beacon_response.status_code in (303, 401), (
+            f"the beacon sits behind the same door as every route (AccessGate), "
+            f"got {ctx.beacon_response.status_code}"
+        )
+
+    def assert_no_study_mark(self, ctx: SimpleNamespace) -> None:
+        self.deliberate_count()  # the counter must exist for "no mark" to mean anything
+        assert self.trail_counts() == ctx.trail_before, (
+            "a refused or stranger's signal must leave the trail untouched"
         )
