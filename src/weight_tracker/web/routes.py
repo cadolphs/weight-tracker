@@ -218,6 +218,26 @@ def recent_weights_map(entries: Sequence[Entry]) -> dict[str, float]:
     return {entry.day.isoformat(): entry.weight_kg for entry in entries[:RECENT_ANCHOR_ENTRIES]}
 
 
+#: The recent list's depth (US-011, A18): the last 7 ENTRIES, never days --
+#: missing days are simply absent because entries, not calendar days, are sliced.
+RECENT_LIST_ENTRIES = 7
+
+
+def entry_row_text(day: date, weight_kg: float) -> str:
+    """The ONE row grammar every entries list speaks (A18, Mandate-12):
+    'Fri 24 Jul — 82.2 kg' -- weekday, day without a leading zero, month, an em
+    dash, the weight at the record's own 0.1 kg precision. The History page's
+    complete list (US-012) reuses this exact function -- one formatting path."""
+    return f"{day:%a} {day.day} {day:%b} — {weight_kg:.1f} kg"
+
+
+def recent_entry_rows(entries: Sequence[Entry]) -> list[str]:
+    """The last 7 entries as display rows, newest first: a pure slice of the
+    newest-first all_entries() read the front page already performs (D-18,
+    zero port changes). Fewer entries -> a shorter list; none -> no rows."""
+    return [entry_row_text(entry.day, entry.weight_kg) for entry in entries[:RECENT_LIST_ENTRIES]]
+
+
 def speed_summary(samples: Sequence[int]) -> dict[str, Any]:
     """KPI-1 speed report over client-measured entry durations: median, p90, count.
 
@@ -374,6 +394,7 @@ def build_router(
             name="index.html",
             context={
                 "recent_weights": recent_weights_map(entries),
+                "recent_entries": recent_entry_rows(entries),
                 "glance_text": deliver_glance(entries),
             },
         )

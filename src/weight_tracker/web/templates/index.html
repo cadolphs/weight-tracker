@@ -45,6 +45,18 @@
       <button type="submit">Save</button>
       <p id="save-feedback" role="alert" hidden></p>
     </form>
+    {% if recent_entries %}
+    <!-- Recent entries (US-011, A18/D9): the last 7 ENTRIES newest first, resting
+         below the form -- server-rendered from the SAME entry read as everything
+         above, display-only rows in the one shared grammar. Looking is not
+         touching: no links, no buttons, no edit or delete. Absent entirely on an
+         empty record; missing days are simply absent, never zeros. -->
+    <ul id="recent-entries" aria-label="Recent entries">
+      {% for row in recent_entries %}
+      <li>{{ row }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
     <p><a href="/graph">History</a></p>
   </main>
   <!-- ONE shared graph engine (ADR-008), deferred and same-origin (G-5 as

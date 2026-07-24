@@ -82,7 +82,7 @@ Feature: The morning opens on the whole picture
     And the trend curve greets him above the entry form
     And nothing about the graph steals the morning focus
 
-  @pending @driving_port @US-011 @contract-shape:bounded-change
+  @driving_port @US-011 @contract-shape:bounded-change
   Scenario: The last week of numbers is one look away
     Given he logged 82.3 kg on 17 July 2026
     And he logged 82.5 kg on 18 July 2026
@@ -103,7 +103,7 @@ Feature: The morning opens on the whole picture
     When he logs "82.2" for today
     Then the save hands back the refreshed recent list with today on top
 
-  @pending @driving_port @US-011 @contract-shape:pure-function
+  @driving_port @US-011 @contract-shape:pure-function
   Scenario: A young record shows what it has
     Given he logged 82.5 kg on 21 July 2026
     And he logged 82.4 kg on 22 July 2026
@@ -111,7 +111,7 @@ Feature: The morning opens on the whole picture
     When he opens the entry screen
     Then the recent list shows exactly those 3 entries
 
-  @pending @driving_port @US-011 @contract-shape:pure-function
+  @driving_port @US-011 @contract-shape:pure-function
   Scenario: Looking is not touching
     Given his record holds an entry for every day from 14 July 2026 to 23 July 2026
     When he opens the entry screen
