@@ -109,9 +109,13 @@ def step_self_contained(composition, ctx):
     composition.theme.assert_self_contained(ctx)
 
 
-@then("the morning screen carries no new moving parts")
-def step_no_new_moving_parts(composition, ctx):
-    composition.theme.assert_no_new_entry_moving_parts(ctx)
+# G-5 clause consciously renegotiated 2026-07-24 (graph-first-home DISTILL): the
+# former "carries no new moving parts" (zero-script count) survives as "every
+# moving part is the tracker's own" (one inline script + sanctioned same-origin
+# vendored chart scripts; zero external origins). See ADR-008 disclosure.
+@then("every moving part on the morning screen is the tracker's own")
+def step_entry_moving_parts_own(composition, ctx):
+    composition.theme.assert_entry_moving_parts_own(ctx)
 
 
 @then("every control promises a comfortable touch target")

@@ -1,0 +1,204 @@
+{
+  "roadmap": {
+    "project_id": "graph-first-home",
+    "created_at": "2026-07-24T16:20:21Z",
+    "total_steps": 7
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 01 — Graph-first front page: shared engine, intent telemetry, recent-7 list, in-place save repaint (US-010 + US-011, milestone-8)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Shared graph engine ships; the front page opens on the whole picture",
+          "description": "Extract graph.html's inline chart JS into web/static/graph.js (relocated, not rewritten — ADR-008); graph.html switches to the shared include; index.html gains the #home-graph mount + lens/scale controls above the form + both deferred same-origin scripts; sw.js APP_SHELL + cache bump; front-page chart block in theme.css.",
+          "criteria": [
+            "GET / with entries renders #home-graph (data-view=\"trend\", data-scale=\"3M\") before the <form>, with the data-lens/data-window control grammar; front page ignores ?view=/?scale= (D-20)",
+            "GET /static/graph.js serves the shared engine; both templates load it deferred; graph.html inline chart JS deleted; all shipped graph/theme ATs green unmodified",
+            "0 entries → no graph area; entry readiness unchanged: interactive ≤2 s, exactly one autofocus (weight field), no tabindex anywhere, decimal keypad intact (Q4)",
+            "sw.js: /static/graph.js joins APP_SHELL AND SHELL_CACHE bumps -v2 → -v3 in this same step/commit (Forge condition 1, Q5)",
+            "Amended G-5 clause green: at most one inline script on /, all script src values ⊆ {/static/uplot.iife.min.js, /static/graph.js}, zero external origins"
+          ],
+          "estimate": "2.5h",
+          "deps": [],
+          "files_to_modify": [
+            "src/weight_tracker/web/static/graph.js",
+            "src/weight_tracker/web/templates/graph.html",
+            "src/weight_tracker/web/templates/index.html",
+            "src/weight_tracker/web/static/sw.js",
+            "src/weight_tracker/web/static/theme.css"
+          ],
+          "implementation_notes": "ADR-008: extraction only — fetch, grid builders, themed uPlot render, lens/scale state on the mount's data-view/data-scale, matchMedia re-render relocate as-is; both pages configure the module with their mount + initial lens/scale. Mount rendered only when entries exist (existing GET / context already carries entries). theme.css: tokens only, ≥44 px controls, both schemes AA. @pending discipline: unskip only this step's 3 scenarios. Note: ambient /trend fetches still emit trend.view.opened until 01-02 — ATs never execute JS, so no test pollution; deploy happens at slice end. EXEMPT FROM PARADIGM: JS extraction + templates/CSS/sw data, no new Python logic. Compensate with property-based test at integration level on adjacent slot (the entry-primacy @property scenario pins the ≤2 s + focus contract over the served page).",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-8-graph-first-front-page.feature",
+          "scenario_name": "The morning opens on the whole picture; An empty record keeps the front page simple; The graph never taxes the entry"
+        },
+        {
+          "id": "01-02",
+          "name": "Intent telemetry: ambient on the record, deliberate redefined, data reads pure",
+          "description": "ADR-009 core flip: GET /trend stops emitting (pure read); GET / appends home.graph.shown when entries exist; GET /graph appends trend.study.opened; /stats gains trend_study_this_week + home_graph_shown_this_week. Same step, mandatory: apply the pinned inherited-AT amendments (milestone-6 + milestone-4 redirects) so the full suite stays green.",
+          "criteria": [
+            "GET /trend appends zero events; historical trend.view.opened rows preserved; /stats keeps trend_view_opened_count as frozen-historical beside the live counters (Forge condition 2)",
+            "GET / with entries appends home.graph.shown per delivery — including when the series read fails (data-available-at-render proxy, Q3); GET /graph appends one trend.study.opened per open",
+            "/stats serves trend_study_this_week (trend.study.opened + trend.study.interaction, raw counts) and home_graph_shown_this_week over the same rolling-week frame as trend_views_this_week (Q2)",
+            "Log-only morning adds 0 to KPI-3: open /, ambient series fetch, save — deliberate count unchanged; graph data failure degrades to absent, save confirms normally",
+            "Same step: GlanceService.study_trend → History-page open; StatsService.assert_trend_views_this_week → reads trend_study_this_week; milestone-4 engagement scenario same redirect; scenario wording untouched; full suite green"
+          ],
+          "estimate": "2h",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "tests/weight-trend-tracker/acceptance/steps/composition.py"
+          ],
+          "implementation_notes": "Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only — document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example — they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest. — Acceptance scenarios frozen at DISTILL; unskip only this step's 2. Emissions via existing append_event + count_events_since (name-parameterised, no store change). Inherited-AT amendment pin: feature-delta § Renegotiations #2 + red-classification.md — never silent. Contract shapes: GET /trend pure-function (empty mutation universe); GET / and GET /graph bounded-change (0–1 declared appends per render).",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-8-graph-first-front-page.feature",
+          "scenario_name": "An ambient morning never counts as deliberate study; A graph hiccup never blocks the log"
+        },
+        {
+          "id": "01-03",
+          "name": "Deliberate-study beacon: closed vocabulary, gated, fire-and-forget",
+          "description": "CREATE POST /telemetry/trend-study behind AccessGate: payload {surface: home|history, control: lens|scale, value: trend|raw|1W|1M|3M|6M|1Y|ALL} → 2xx + exactly one trend.study.interaction append; anything else → 400, no trail write. graph.js fires the beacon on every explicit lens/scale tap on either surface.",
+          "criteria": [
+            "Valid payload → 2xx and exactly one trend.study.interaction append, counted in /stats trend_study_this_week; two front-page taps (scale then lens) count as 2",
+            "Unknown or malformed payload → 400, never 500, zero trail writes — no free-text ever reaches the append-only trail (unbounded-preservation)",
+            "Unauthenticated beacon → door (303/401), zero trail writes",
+            "graph.js beacon is fire-and-forget: network or append failure has zero UI effect; lens toggle still preserves the chosen scale on the front page",
+            "append_event failure inside the route swallowed with a structured log; responses only 2xx or 400 (Forge condition 3)"
+          ],
+          "estimate": "1.5h",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/static/graph.js"
+          ],
+          "implementation_notes": "Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only — document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example — they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest. — Vocabulary validation is the natural PBT target: universe = {exactly one declared append} for the closed set, {} for everything else. Reuse domain_types TimeScale/ViewMode token sets — no new enums (Mandate-12). Bounded-change route per DESIGN Reuse Analysis. Unskip only this step's 3 scenarios.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-8-graph-first-front-page.feature",
+          "scenario_name": "Choosing a lens or scale is deliberate study; A garbled study signal is turned away without a mark; A stranger's study signal leaves no mark"
+        },
+        {
+          "id": "01-04",
+          "name": "The last seven entries rest below the form",
+          "description": "GET / context gains recent_entries — a pure slice of the newest-first all_entries() read the route already performs (D-18, zero port changes); index.html renders <ul id=\"recent-entries\"> below the form, server-rendered and display-only; entries-list block in theme.css.",
+          "criteria": [
+            "Below the form: last 7 entries newest first as rows in the `Fri 24 Jul — 82.2 kg` grammar (%a d %b — X.X kg, no leading zero, 0.1 precision); <7 → shorter list; 0 → no list",
+            "Missing days simply absent — no zeros, placeholders, or interpolated rows",
+            "Rows carry no links, buttons, or edit/delete affordances; each value equals the stored entry the graph and yesterday anchor render",
+            "List is server-rendered from the single entry store; entry readiness untouched (≤2 s guardrail); calm-theme AA in both schemes, neutral tone"
+          ],
+          "estimate": "1h",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/index.html",
+            "src/weight_tracker/web/static/theme.css"
+          ],
+          "implementation_notes": "Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only — document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example — they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest. — D-18: last-7 = entries[:7] over the already-fetched list; if a pure slice/row-format helper materializes, add its paired PBT (only new-domain-math trigger this feature). Build the row-rendering idiom for reuse — 02-01's complete list shares the exact grammar (one formatting path). The 4-entry recent_weights_map (yesterday anchor) keeps its own contract untouched. Unskip only this step's 3 scenarios.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-8-graph-first-front-page.feature",
+          "scenario_name": "The last week of numbers is one look away; A young record shows what it has; Looking is not touching"
+        },
+        {
+          "id": "01-05",
+          "name": "Saving hands back the refreshed morning picture",
+          "description": "POST /entries response gains the recent field (route-level enrichment, D-19 — glance/confirmation precedent, port untouched); the front-page save handler updates #recent-entries from recent and refetches the graph at the currently selected lens/scale; any refresh failure → absent, never stale.",
+          "criteria": [
+            "Save response carries recent: up to 7 {date, weight_kg} newest first with today's entry on top; confirmation and glance fields unchanged",
+            "After a successful save, #recent-entries updates in place (no reload) and the graph refetches at the current lens/scale — glance co-refreshes as today (A15)",
+            "Post-save refetch appends zero deliberate events — repaint adds nothing to KPI-3 (D-16 telemetry-free reads)",
+            "Refresh failure → graph/list absent, never stale (D-13 pin extended); save and confirmation never blocked or delayed",
+            "WeightLogging bounded-change universe unchanged: exactly one {date} row + one entry.saved event per save"
+          ],
+          "estimate": "1.5h",
+          "deps": [
+            "01-02",
+            "01-04"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/index.html",
+            "src/weight_tracker/web/static/graph.js"
+          ],
+          "implementation_notes": "Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only — document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example — they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest. — recent reuses 01-04's slice (same source, same order). Refetch = re-run the existing graph.js fetch at the mount's current data-view/data-scale (ADR-008). A17 unit-level pin owed here: front page ignores ?view=/?scale= (no AT spend). Slice-01 DoD after this step: deploy, dogfood a real morning entry, verify KPI-7 emitting + KPI-3 purity on /stats + cache -v3 pickup. Unskip only this step's 2 scenarios.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-8-graph-first-front-page.feature",
+          "scenario_name": "Saving repaints the morning picture in place; Today's save goes straight to the top"
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Slice 02 — Whole-record History page: complete list beneath the full-control graph (US-012, milestone-9)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "The complete record beneath the History graph",
+          "description": "GET /graph context gains the complete-record read; graph.html renders <ul id=\"history-entries\"> after #chart — server-rendered from all_entries(), newest first, always the whole record regardless of the chart's selected window (D-17). Deep links, lens-preserves-scale, empty-invite, back-link preserved by construction (A16).",
+          "criteria": [
+            "GET /graph lists the complete record newest first below the chart in the `Fri 24 Jul — 82.2 kg` row grammar, independent of the selected lens/scale window",
+            "List carries exactly the stored entries the raw plot draws; gap days appear in neither",
+            "Deep links ?view=/?scale= honored unchanged; lens toggle preserves the chosen scale; back-link to / intact",
+            "0 entries → first-log invite, no list rendered; the empty visit still appends one trend.study.opened",
+            "List presentation calm-theme AA in both schemes, neutral tone, display-only"
+          ],
+          "estimate": "1.5h",
+          "deps": [
+            "01-03",
+            "01-05"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/graph.html",
+            "src/weight_tracker/web/static/theme.css"
+          ],
+          "implementation_notes": "Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only — document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example — they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest. — Reuse 01-04's row-formatting idiom verbatim (single formatting path; paired PBT already owed there if a helper exists). Server-rendered Jinja loop, lean markup — no per-row JS or handlers (02-02's budget depends on it). List heading/wording free; DISTILL pins only the #history-entries id + row grammar. Unskip only this step's 4 scenarios.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-9-whole-record-history.feature",
+          "scenario_name": "History leads to the whole record; The list and the plot tell the same story; Old bookmarks still work; An empty record still invites"
+        },
+        {
+          "id": "02-02",
+          "name": "History guarantees: deliberate count live end-to-end, whole record within budget",
+          "description": "Green the History surface's KPI and performance contract: a History open increments the deliberate count end-to-end through /stats (KPI-3's new home), and the combined page stays interactive ≤2 s with a ≥300-entry record (G-2 extended) — trimming template/render weight as the budget demands. Closes the feature: zero @pending remaining.",
+          "criteria": [
+            "Opening /graph adds exactly 1 to trend_study_this_week, read end-to-end through /stats (deliberate count at 1 → 2 after one open)",
+            "History page with ≥300 entries interactive within 2 seconds with the complete list present (layer-3 real HTTP + SQLite, example-pinned budget)",
+            "Rendering stays lean server markup — no pagination, filtering, or per-row scripting (out of scope; budget met by weight, not by truncation)",
+            "All 19 feature scenarios green, zero @pending; milestones 1–7 suites green including the amended G-5 and redirected milestone-4/6 clauses"
+          ],
+          "estimate": "1h",
+          "deps": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/templates/graph.html",
+            "src/weight_tracker/web/static/theme.css"
+          ],
+          "implementation_notes": "The trend.study.opened emission and /stats counter shipped in 01-02; this step proves them in milestone-9 vocabulary and owns the render-weight work the ≥300-entry budget demands. Feature DoD after this step: per-feature mutation gate ≥80% on modified files; deploy + same-day dogfood (real History-page audit); /stats weekly-review legibility check (frozen trend_view_opened_count beside live counters); outcome-registry delta re-check for OUT-8/OUT-9 (Q5, CLI defect noted). EXEMPT FROM PARADIGM: no new Python units — production delta is template/CSS weight tuning against a quantified budget. Compensate with property-based test at integration level on adjacent slot (the DISTILL @property scenario quantifies the ≤2 s / ≥300-entry invariant; beacon-vocabulary PBTs from 01-03 cover the adjacent telemetry slot). Unskip only this step's 2 scenarios.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-9-whole-record-history.feature",
+          "scenario_name": "Deliberate study is counted where it happens; The full record arrives without a wait"
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "src/weight_tracker/"
+    ],
+    "test_directories": [
+      "tests/weight-trend-tracker/",
+      "tests/common/"
+    ],
+    "excluded_patterns": [
+      "__init__.py",
+      "__pycache__/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "approved_at": "2026-07-24"
+  }
+}

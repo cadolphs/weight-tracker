@@ -16,25 +16,28 @@ journey:
 steps:
   - id: 1
     name: "Log today's weight"
-    action: "Tap home-screen icon -> entry screen opens, today's date preselected, numeric field focused"
+    action: "Tap home-screen icon -> entry screen opens graph-first: trend graph (full lens + scale controls) above the form, today's date preselected, numeric field focused, last-7 entries beneath"
     screen_sketch: |
       +--------------------------------------+
-      | Mon 21 Jul 2026            [today]   |
-      | Trend: 82.3 kg · ↓0.25 kg/week       |  <- glance line (home-trend-display)
-      |                                      |
-      |   Weight:  [ 82.4      ] kg          |
-      |   (yesterday: 82.6 kg)               |
-      |                                      |
+      | Fri 24 Jul 2026            [today]   |
+      | [Trend|Raw] [1W 1M 3M 6M 1Y All]     |  <- full controls (graph-first-home)
+      |   ~~~~~ trend curve, 3M ~~~~~        |  <- ambient render; NEVER counts as deliberate study
+      | Trend: 82.3 kg · ↓0.25 kg/week       |  <- glance line kept (home-trend-display)
+      |   Weight:  [ 82.2      ] kg          |
+      |   (yesterday: 82.4 kg)               |
       |            [  Save  ]                |
+      | Thu 23 Jul — 82.4 kg                 |  <- last 7 ENTRIES, display-only
+      | Wed 22 Jul — 82.6 kg  …              |
+      |   [History] -> full graph + list     |
       +--------------------------------------+
-      | Saved: 82.4 kg -- Mon 21 Jul         |
-      | Trend: 82.3 kg · ↓0.25 kg/week       |  <- refreshed in place after save
+      | Saved: 82.2 kg -- Fri 24 Jul         |
+      | graph + glance + list refresh in place|
       +--------------------------------------+
     shared_artifacts:
       - name: "weight_entry"
         source: "entry store (single source of truth for {date, weight_kg})"
-        displayed_as: "confirmation line, history graph point, trend input"
-        consumers: ["step 1 confirmation", "step 2 raw graph", "step 3 trend", "step 4 edit form"]
+        displayed_as: "confirmation line, history graph point, trend input, recent/complete list rows"
+        consumers: ["step 1 confirmation", "step 1 front-page graph + last-7 list (graph-first-home)", "step 2 raw graph + complete history list", "step 3 trend", "step 4 edit form"]
       - name: "today_date"
         source: "device-local calendar date"
         displayed_as: "preselected date, one-entry-per-day key"
@@ -46,7 +49,7 @@ steps:
       - name: "current_trend_display"
         source: "TrendProjection (derived from entry store per read; never stored — same smoothed series as step 3)"
         displayed_as: "'Trend: 82.3 kg · ↓0.25 kg/week' glance line; rate only when record spans >=7 days"
-        consumers: ["step 1 glance line (pre-save and post-save refresh)", "step 3 trend view (same series)"]
+        consumers: ["step 1 glance line (pre-save and post-save refresh)", "step 1 front-page graph (graph-first-home; same smoothed series)", "step 3 trend view (same series)"]
     emotional_state: { entry: "routine, half-awake", exit: "done and oriented — knows where he stands and which way he's moving" }
     integration_checkpoint: "Saved entry is immediately visible in history (steps 2-3 read the same store); glanced trend value equals the graph's trend line for the same entry set (single smoothed series)"
     failure_modes:
@@ -60,6 +63,9 @@ steps:
       - "Weekly rate shown on a days-old record (noise dressed as insight; hold rate until >=7-day span)"
       - "Bright light-theme screen in a dark bathroom at 06:45 (presentation must follow the system color scheme)" # calm-visual-theme
       - "Evening render shows the next-day frame (read surfaces — yesterday anchor, graph windows — must use the device day, never server UTC)" # fix-device-day-reads
+      - "Ambient front-page graph render counted as deliberate trend study (KPI-3 inflation ~7x; ambient renders — page open at defaults, post-save refresh — must never increment the deliberate counter)" # graph-first-home
+      - "Front-page graph or recent-list fetch blocking or delaying entry readiness (must degrade to absent; <=2 s interactive and save flow unaffected)" # graph-first-home
+      # NOTE (graph-first-home, locked D6): the keypad covering the graph on open is ACCEPTED, not a failure — autofocus + decimal keypad take priority.
     gherkin: |
       Scenario: Morning weight is captured in seconds
         Given it is Monday 21 July 2026 at 06:45 and Clemens has not logged today
@@ -75,13 +81,14 @@ steps:
 
   - id: 2
     name: "Review raw history"
-    action: "Open graph view; pick time scale (1W / 1M / 3M / 6M / 1Y / All)"
+    action: "Ambient: front-page graph (graph-first-home). Deliberate: 'History' opens the combined full-history page — full-control graph + COMPLETE entries list below; pick time scale (1W / 1M / 3M / 6M / 1Y / All)"
     emotional_state: { entry: "curious", exit: "informed" }
-    integration_checkpoint: "Graph renders exactly the stored entries — no interpolation, gaps stay gaps"
+    integration_checkpoint: "Graph renders exactly the stored entries — no interpolation, gaps stay gaps; the complete list shows the same stored entries the plot renders"
     failure_modes:
       - "Missing days rendered as zeros or fake interpolated points (must be gaps)"
       - "Graph unreadable on phone viewport"
       - "Chart axes, gridlines, or series strokes illegible in the dark color scheme" # calm-visual-theme
+      - "Complete entries list and plotted points disagree (both must render exactly the stored entries)" # graph-first-home
     gherkin: |
       Scenario: History is readable at the chosen time scale
         Given Clemens has 45 daily entries between March and July 2026
@@ -91,7 +98,7 @@ steps:
 
   - id: 3
     name: "Judge the trend"
-    action: "View trend line (default view); toggle Trend <-> Raw"
+    action: "Ambient every morning on the front-page graph (graph-first-home); deliberate study on the History page; trend is the default lens; toggle Trend <-> Raw on either surface"
     emotional_state: { entry: "possibly anxious after a raw spike", exit: "reassured — noise vs signal resolved" }
     integration_checkpoint: "Trend and raw views share the same selected time scale and the same entry store"
     failure_modes:
@@ -129,7 +136,7 @@ integration_validation:
       failure_message: "Entry visible at save must be identical in graph, trend input, and edit form"
     - artifact: "selected_time_scale"
       must_match_across: [2, 3]
-      failure_message: "Toggling Trend<->Raw must preserve the chosen time scale"
+      failure_message: "Toggling Trend<->Raw must preserve the chosen time scale — on each surface independently (front page and History page each hold their own selection; no cross-surface persistence, graph-first-home A17)"
     - artifact: "current_trend_display"
       must_match_across: [1, 3]
       failure_message: "Trend value glanced at the entry screen must equal the graph's trend line for the same entries (one smoothed series, no second algorithm)"
@@ -147,3 +154,6 @@ changelog:
   - date: "2026-07-23"
     feature: "calm-visual-theme"
     change: "Presentation-only delta: calm-minimal theme following the system color scheme across entry, graph, and door screens. No step, flow, or shared-artifact changes. Failure modes added: bright screen in dark bathroom (step 1), dark-scheme chart illegibility (step 2/3). Zero-friction start of the emotional arc is a protected guardrail (KPI-1 unchanged)."
+  - date: "2026-07-24"
+    feature: "graph-first-home"
+    change: "Step 1 restructured graph-first: full-control trend graph (lens + scale) above the entry form, glance line kept, last-7 display-only entries list below; graph/glance/list refresh in place after save. Steps 2/3 now start ambient on the front page; 'History' = deliberate visit to the combined page (full graph + complete entries list). Failure modes added: ambient render counted as deliberate study (KPI-3 inflation), graph/list fetch blocking entry, list/plot disagreement; keypad covering the graph on open is ACCEPTED (locked D6), noted, not a failure. selected_time_scale rule scoped per surface (no cross-surface persistence). Entry primacy (autofocus, keypad, <=2 s) unchanged."

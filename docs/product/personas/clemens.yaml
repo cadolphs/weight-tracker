@@ -22,4 +22,4 @@ persona:
     - "Single-purpose minimalism: no calories, no workouts, no gamification"
     - "Ownership of his own data"
   measurement_note: "Single-user product: all KPIs are self-instrumented or self-reported"
-  features: [weight-trend-tracker, home-trend-display, calm-visual-theme]
+  features: [weight-trend-tracker, home-trend-display, calm-visual-theme, graph-first-home]

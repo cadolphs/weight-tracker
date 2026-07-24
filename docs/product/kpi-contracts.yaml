@@ -34,6 +34,34 @@ events:
       KPI-5's per-calendar-day pairing is computed at read time from the trail.
     fields:
       date: "ISO date (server UTC) of the delivery"
+  # --- graph-first-home (DISTILL 2026-07-24, ADR-009: intent telemetry) ---------
+  # RETIREMENT: the trend.view.opened EMISSION on GET /trend retires with this
+  # feature — series/history reads become pure reads. Historical rows stay on the
+  # append-only trail; /stats keeps trend_view_opened_count as a FROZEN historical
+  # counter. Deliberate study moves to the trend.study.* events below (KPI-3's
+  # redefinition); ambient graph presence gets its own event (KPI-7).
+  - name: home.graph.shown
+    emitted: server-side, on each GET / render when entries exist — an AMBIENT
+      data-available-at-render delivery proxy (Q3, glance precedent; client paint
+      is not measured). Per delivery, no per-day dedup; KPI-7's pairing with
+      entry.saved per calendar day is computed at read time on /stats.
+    fields:
+      date: "ISO date (server UTC) of the delivery"
+  - name: trend.study.opened
+    emitted: server-side, on each GET /graph (History page) render — one DELIBERATE
+      study signal per open, regardless of ?view=/?scale= deep link or record state.
+    fields:
+      date: "ISO date (server UTC)"
+  - name: trend.study.interaction
+    emitted: server-side, by POST /telemetry/trend-study (fire-and-forget beacon
+      from explicit lens/scale taps on EITHER surface; A19/OQ-8 confirmed). Closed
+      vocabulary — surface in {home, history}, control in {lens, scale}, value from
+      the known token sets; anything else → 400, never 500, never a trail write.
+      Behind AccessGate like every route.
+    fields:
+      surface: "home | history"
+      control: "lens | scale"
+      value: "trend|raw or 1W|1M|3M|6M|1Y|ALL"
 
 kpis:
   - id: KPI-1
@@ -69,13 +97,24 @@ kpis:
     type: leading
     target: { sessions_per_week: 3 }
     baseline: 0
-    instrument: trend_view_opened event
+    # REDEFINED by graph-first-home (2026-07-24, A19/ADR-009): deliberate trend
+    # study = History-page opens (trend.study.opened) + explicit lens/scale
+    # interactions on either surface (trend.study.interaction). Ambient renders
+    # (front-page open at defaults, post-save refresh) add 0 by construction.
+    # Q2 resolved at DISTILL: the /stats reading is the RAW rolling-week event
+    # count (trend_study_this_week), no read-time session collapse; write-time
+    # stays raw either way. trend_view_opened_count remains as a frozen
+    # historical counter (instrument switch documented on /stats). A further
+    # KPI-3 decline after ship is an EXPECTED substitution, not a regression;
+    # retire or retarget at a weekly review if it stabilizes near zero.
+    instrument: trend.study.opened + trend.study.interaction events (was
+      trend_view_opened, frozen 2026-07-24)
     storage: events table
     query: |
-      SELECT strftime('%Y-%W', ts) week, COUNT(*) opens
-      FROM events WHERE name = 'trend_view_opened'
+      SELECT strftime('%Y-%W', ts) week, COUNT(*) engagements
+      FROM events WHERE name IN ('trend.study.opened', 'trend.study.interaction')
       GROUP BY week ORDER BY week DESC LIMIT 8;
-    dashboard: /stats "Trend engagement" card
+    dashboard: /stats "Trend engagement" card (trend_study_this_week)
     alert: none-automated; weekly manual review
 
   - id: KPI-5
@@ -97,6 +136,25 @@ kpis:
       semantics confirmed at DELIVER 2026-07-23)
     alert: none-automated; weekly manual review. KPI-3 note — a decline in deliberate
       trend-view opens after this ships is an EXPECTED substitution, not a regression.
+
+  - id: KPI-7
+    name: ambient-graph-presence
+    type: leading
+    target: { graph_days_pct_of_logging_days: 95, window: last 8 ISO weeks }
+    baseline: "0% (curve only behind the History tap before graph-first-home)"
+    instrument: home.graph.shown event paired with entry.saved per calendar day
+      (read-time pairing, KPI-5 precedent; server-side delivery proxy per Q3)
+    storage: events table
+    query: |
+      WITH logged AS (SELECT DISTINCT date(ts) d FROM events WHERE name = 'entry.saved'),
+           pictured AS (SELECT DISTINCT date(ts) d FROM events WHERE name = 'home.graph.shown')
+      SELECT COUNT(*) logging_days,
+             SUM(EXISTS (SELECT 1 FROM pictured WHERE pictured.d = logged.d)) graph_days
+      FROM logged;
+      -- presence % = graph_days / logging_days, surfaced on /stats
+    dashboard: /stats ambient pairing card (home_graph_shown_this_week beside
+      trend_study_this_week — ambient vs deliberate, same rolling week)
+    alert: none-automated; weekly manual review
 
   - id: KPI-4
     name: subscription-cancelled
@@ -224,6 +282,52 @@ at_scenario_links:
     scenarios: []   # finished-feel is self-reported after 7 dogfood mornings (single-user measurement_note); not automatable
     measurement_window: 7 dogfood mornings after slice 01 ships
     gate: soft
+  # --- DISTILL tightening (2026-07-24, feature graph-first-home) ----------------
+  - kpi: KPI-3
+    at_tag: "@kpi"
+    scenarios:
+      - "An ambient morning never counts as deliberate study (milestone-8-graph-first-front-page.feature)"   # purity: log-only morning adds 0
+      - "Choosing a lens or scale is deliberate study (milestone-8-graph-first-front-page.feature)"          # beacon interactions count
+      - "Saving repaints the morning picture in place (milestone-8-graph-first-front-page.feature)"          # post-save refetch adds 0
+      - "Deliberate study is counted where it happens (milestone-9-whole-record-history.feature)"            # History opens count
+      - "A garbled study signal is turned away without a mark (milestone-8-graph-first-front-page.feature)"  # closed vocabulary, no free-text pollution
+    note: >
+      Instrument redefined per A19/ADR-009 (see KPI-3 entry). The two pre-existing
+      KPI-3 scenario links (milestone-4 "Opening the trend counts toward engagement",
+      milestone-6 "The stats page still tells deliberate study from ambient glances")
+      are AMENDED at the DELIVER step that retires the trend.view.opened emission:
+      the study move redirects to History-page opens and the count reads
+      trend_study_this_week — scenario wording unchanged, redirect pinned in the
+      milestone-6 feature file. Never a silent breakage.
+    measurement_window: per rolling ISO week (raw event counts, Q2)
+    gate: soft
+  - kpi: KPI-7
+    at_tag: "@kpi"
+    scenarios:
+      - "An ambient morning never counts as deliberate study (milestone-8-graph-first-front-page.feature)"   # home.graph.shown on the record
+      - "A graph hiccup never blocks the log (milestone-8-graph-first-front-page.feature)"                   # delivery proxy fires on data-available render (Q3)
+    measurement_window: last 8 ISO weeks (per-calendar-day pairing at read time)
+    gate: soft   # instrumentation emitting + queryable is AT-asserted; the >=95% presence itself is real-life data
+  - guardrail: G-2
+    at_tag: "@property @kpi"
+    scenarios:
+      - "The graph never taxes the entry (milestone-8-graph-first-front-page.feature)"        # entry screen <=2 s WITH the graph present + no focus theft (Q4)
+      - "The full record arrives without a wait (milestone-9-whole-record-history.feature)"   # combined page <=2 s with >=300-entry list
+    measurement_window: every push (CI)
+    gate: hard
+  - guardrail: G-5
+    at_tag: "@kpi"
+    scenarios:
+      - "The finished look costs almost nothing (milestone-7-calm-visual-theme.feature)"
+    note: >
+      Script clause CONSCIOUSLY renegotiated 2026-07-24 (graph-first-home DISTILL,
+      per the ADR-008 disclosure and the DISCUSS flag): "0 new entry-screen scripts"
+      -> "every moving part on the morning screen is the tracker's own" (exactly one
+      inline script + at most the two same-origin vendored chart scripts
+      /static/uplot.iife.min.js and /static/graph.js). Surviving intent unchanged:
+      zero external origins on every screen, <=10 KB theme budget, entry primacy.
+    measurement_window: every push (CI)
+    gate: hard
 
 baselines:
   # Recorded at DELIVER completion (2026-07-23). Production not yet deployed
@@ -266,3 +370,19 @@ baselines:
   - kpi: KPI-6
     status: pending-dogfood
     evidence: "7-morning self-report due (finished-feel >= 4/5, single-user measurement_note); record in iteration notes after slice 01 dogfood window"
+  # Recorded at DELIVER completion of graph-first-home (2026-07-24).
+  - kpi: KPI-7
+    status: instrumentation-verified
+    evidence: >
+      measured baseline 0% pre-feature (curve only reachable behind the History tap
+      before graph-first-home). Live counter verified emitting in the 2026-07-24
+      post-merge demo (production composition, 135-entry seed):
+      home_graph_shown_this_week = 2 (two ambient GET / deliveries on the record).
+  - kpi: KPI-3
+    status: instrument-switched
+    evidence: >
+      instrument switch date 2026-07-24: trend.view.opened emission retired
+      (trend_view_opened_count frozen-historical on /stats); live counter
+      trend_study_this_week verified emitting in the same demo run — unchanged by
+      ambient front-page renders and post-save refetches (purity), moved 2 -> 3 on
+      one History-page open.

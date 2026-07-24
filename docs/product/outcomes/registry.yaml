@@ -125,3 +125,47 @@ outcomes:
   superseded_by: null
   # Registered manually at DELIVER finalize (2026-07-23): `nwave-ai outcomes register`
   # still exits 1 with the mis-packaged schema.json FileNotFoundError (see header note).
+- id: OUT-8
+  kind: operation
+  summary: Trend-study beacon — explicit lens/scale taps recorded as deliberate study
+  feature: graph-first-home
+  inputs:
+  - shape: 'POST /telemetry/trend-study {surface: home|history, control: lens|scale,
+      value: trend|raw|1W|1M|3M|6M|1Y|ALL} (closed vocabulary, behind AccessGate)'
+  output:
+    shape: exactly one trend.study.interaction event append | 400 on unknown vocabulary
+      (never 500, never a trail write) | refused at the door without a session
+  keywords:
+  - telemetry-beacon
+  - trend-study
+  - closed-vocabulary
+  - deliberate-study
+  - adr-009
+  artifact: tests/weight-trend-tracker/acceptance/milestone-8-graph-first-front-page.feature
+  related:
+  - OUT-9
+  superseded_by: null
+  # Registered manually at DISTILL (2026-07-24): CLI registration re-attempted, still
+  # fails with the mis-packaged schema.json FileNotFoundError (see header note).
+- id: OUT-9
+  kind: invariant
+  summary: KPI-3 purity — ambient renders never count as deliberate trend study
+  feature: graph-first-home
+  inputs:
+  - shape: any log-only morning (front-page open at defaults, ambient series fetch,
+      save, post-save refetch)
+  output:
+    shape: deliberate trend-study count (trend.study.* trail) unchanged — 0 added by
+      construction; ambient presence recorded separately as home.graph.shown (KPI-7);
+      GET /trend and GET /entries are pure reads (trend.view.opened emission retired)
+  keywords:
+  - kpi-3-purity
+  - ambient-vs-deliberate
+  - intent-telemetry
+  - pure-reads
+  - adr-009
+  artifact: tests/weight-trend-tracker/acceptance/milestone-8-graph-first-front-page.feature
+  related:
+  - OUT-8
+  superseded_by: null
+  # Registered manually at DISTILL (2026-07-24): same CLI defect as OUT-8.

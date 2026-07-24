@@ -5,7 +5,9 @@ Feature: The tracker looks finished, calm in daylight and dark in the dark
   the same on the entry screen, the passphrase door and the graph. The look is
   a single self-contained theme delivered by the tracker itself: every ink
   keeps its contrast promise in both lights (G-4), the whole look costs almost
-  nothing (G-5: no outside requests, no new morning-screen scripts), and NO
+  nothing (G-5: no outside requests; every morning-screen script the tracker's
+  own -- script clause consciously renegotiated 2026-07-24 by graph-first-home,
+  ADR-008: two same-origin vendored chart scripts sanctioned), and NO
   behavior changes -- saves, rejections, the glance and the door all work
   byte-for-byte as before, with or without the theme (progressive enhancement).
   A mid-session light/dark flip on the open graph is covered structurally
@@ -104,7 +106,7 @@ Feature: The tracker looks finished, calm in daylight and dark in the dark
     When the cost of the new look is tallied
     Then the whole look weighs no more than 10 kilobytes
     And no screen reaches beyond the tracker's own walls
-    And the morning screen carries no new moving parts
+    And every moving part on the morning screen is the tracker's own
 
   @driving_port @error @US-008 @contract-shape:bounded-change
   Scenario: A missing theme never blocks the morning weigh-in

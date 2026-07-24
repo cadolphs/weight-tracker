@@ -129,6 +129,12 @@ Feature: Where you stand, at a glance
     And nothing is stored
     And no glance delivery is recorded for it
 
+  # AT-contract note (graph-first-home DISTILL, 2026-07-24, ADR-009): when the
+  # trend.view.opened emission retires, "studies the graph's trend view" redirects
+  # to History-page opens (GlanceService.study_trend -> GET /graph) and the count
+  # reads the deliberate trail (STUDY_COUNT_KEY on /stats). Scenario wording stays;
+  # the service redirect lands in the SAME DELIVER step that retires the emission
+  # -- a pinned, conscious amendment, never a silent breakage.
   @driving_port @kpi @real-io @adapter-integration @US-007 @contract-shape:bounded-change
   Scenario: The stats page still tells deliberate study from ambient glances
     Given his record holds an entry for every day from 1 July 2026 to 16 July 2026
