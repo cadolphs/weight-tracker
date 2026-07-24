@@ -33,7 +33,7 @@ Feature: One place holds the whole record
     Then the complete list carries exactly the entries the raw plot draws
     And every day from 10 July 2026 to 13 July 2026 appears nowhere in the complete list
 
-  @pending @driving_port @kpi @real-io @adapter-integration @US-012 @contract-shape:bounded-change
+  @driving_port @kpi @real-io @adapter-integration @US-012 @contract-shape:bounded-change
   Scenario: Deliberate study is counted where it happens
     Given his weight has been falling for the last two weeks
     And he has studied the History page once this week
@@ -57,7 +57,7 @@ Feature: One place holds the whole record
     And no complete list is rendered
     And the empty visit still counts as one deliberate study
 
-  @pending @driving_port @property @kpi @US-012 @contract-shape:pure-function
+  @driving_port @property @kpi @US-012 @contract-shape:pure-function
   Scenario: The full record arrives without a wait
     Given his record holds an entry for every day from 1 September 2025 to 24 July 2026
     When he opens the History page, watch in hand
