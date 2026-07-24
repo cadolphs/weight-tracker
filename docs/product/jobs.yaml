@@ -25,11 +25,16 @@ jobs:
         when: "I've just stepped off the scale and my eye is still on the entry screen"
         i_want_to: "see my current trend weight and weekly rate at a glance, without navigating anywhere"
         so_i_can: "know where I stand and which way I'm moving before pocketing the phone"
+      - id: js-5-quality # added 2026-07-23 (calm-visual-theme): emotional-dimension moment
+        when: "I open the tracker every morning of the year, often in a dim bathroom"
+        i_want_to: "see a calm, deliberately designed screen that follows my phone's color scheme, not default browser HTML"
+        so_i_can: "feel the tool is finished and trustworthy, and cancel the old subscription without hesitation"
     dimensions:
       functional:
         - "Capture one weight value per calendar day, in kg, from a phone, in seconds"
         - "Visualize raw history and a smoothed trend over selectable time scales"
         - "Backfill and correct past days; derived views recompute"
+        - "Render legibly in dim light at 06:45 (follow the phone's color scheme)" # added 2026-07-23 (calm-visual-theme)
       emotional:
         - "Reassurance: a bad scale morning is visibly just noise on the trend"
         - "Confidence that no entry is ever lost"
@@ -54,4 +59,4 @@ jobs:
     opportunity_scoring: >
       Skipped per workflow rule: scoring only applies when multiple jobs compete.
       Exactly one job identified; capture/judge/maintain are moments of the same job.
-    features: [weight-trend-tracker, home-trend-display]
+    features: [weight-trend-tracker, home-trend-display, calm-visual-theme]

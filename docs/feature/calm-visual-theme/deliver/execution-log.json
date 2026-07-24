@@ -1,0 +1,107 @@
+{
+ "schema_version": "3.0",
+ "feature_id": "calm-visual-theme",
+ "events": [
+  {
+   "sid": "01-01",
+   "p": "RED",
+   "s": "EXECUTED",
+   "d": "PASS",
+   "t": "2026-07-24T03:01:13Z"
+  },
+  {
+   "sid": "01-01",
+   "p": "GREEN",
+   "s": "EXECUTED",
+   "d": "PASS",
+   "t": "2026-07-24T03:03:08Z"
+  },
+  {
+   "sid": "01-01",
+   "p": "COMMIT",
+   "s": "EXECUTED",
+   "d": "PASS",
+   "t": "2026-07-24T03:03:20Z"
+  },
+  {
+   "sid": "01-02",
+   "p": "RED",
+   "s": "EXECUTED",
+   "d": "PASS",
+   "t": "2026-07-24T03:07:10Z"
+  },
+  {
+   "sid": "01-02",
+   "p": "GREEN",
+   "s": "EXECUTED",
+   "d": "PASS",
+   "t": "2026-07-24T03:08:20Z"
+  },
+  {
+   "sid": "01-02",
+   "p": "COMMIT",
+   "s": "EXECUTED",
+   "d": "PASS",
+   "t": "2026-07-24T03:08:31Z"
+  },
+  {
+   "sid": "01-03",
+   "p": "RED",
+   "s": "EXECUTED",
+   "d": "PASS",
+   "t": "2026-07-24T03:12:37Z"
+  },
+  {
+   "sid": "01-03",
+   "p": "GREEN",
+   "s": "EXECUTED",
+   "d": "PASS",
+   "t": "2026-07-24T03:13:18Z"
+  },
+  {
+   "sid": "01-03",
+   "p": "COMMIT",
+   "s": "EXECUTED",
+   "d": "PASS",
+   "t": "2026-07-24T03:13:48Z"
+  },
+  {
+   "sid": "02-01",
+   "p": "RED",
+   "s": "EXECUTED",
+   "d": "PASS",
+   "t": "2026-07-24T03:16:56Z"
+  },
+  {
+   "sid": "02-01",
+   "p": "GREEN",
+   "s": "EXECUTED",
+   "d": "PASS",
+   "t": "2026-07-24T03:18:31Z"
+  },
+  {
+   "sid": "02-01",
+   "p": "COMMIT",
+   "s": "EXECUTED",
+   "d": "PASS",
+   "t": "2026-07-24T03:18:43Z"
+  },
+  {
+   "gate": "post-merge-integration",
+   "status": "PASS",
+   "environments_tested": [
+    "local-dev (full suite 123 passed, 0 skipped)",
+    "live-server demo (uvicorn + curl, production env contract)"
+   ],
+   "environments_deferred": [
+    "ci + production (existing pipeline, runs on push to main)"
+   ],
+   "stories_demoed": [
+    "US-008",
+    "US-009"
+   ],
+   "demo_evidence": "Locked GET / (Accept: text/html): door carries href=/static/theme.css; after login GET /: theme link + autofocus + inputmode=decimal intact; GET /static/theme.css: 200, 3394 bytes, 66 custom-property lines, prefers-color-scheme dark block present; GET /graph: theme link + matchMedia wiring, zero hard-coded hex (#1f6feb/#d29922 absent); POST /entries: Saved: 82.4 kg — Thu 23 Jul with glance",
+   "timestamp": "2026-07-24T03:30:00Z"
+  }
+ ]
+}

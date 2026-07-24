@@ -202,6 +202,28 @@ at_scenario_links:
       - "pure-core PBT: test_a_fixed_entry_set_always_renders_an_identical_line (properties/test_trend_math_properties.py)"
     measurement_window: every push (CI)
     gate: hard
+  # --- DISTILL tightening (2026-07-23, feature calm-visual-theme) --------------
+  - guardrail: G-4
+    at_tag: "@kpi"
+    scenarios:
+      - "Ink and surface keep their contrast promise in any light (milestone-7-calm-visual-theme.feature)"
+      - "Dim light is never served the daylight palette by accident (milestone-7-calm-visual-theme.feature)"   # scheme-parity guard: no silent daylight fallback at 06:45
+    note: checker = WCAG relative-luminance arithmetic in the AT (Q1/Q6 resolved); asserts
+      required RATIOS (text >= 4.5:1, non-text >= 3:1, both schemes) over the tokens the
+      served asset declares — hex nudges stay green
+    measurement_window: every push (CI)
+    gate: hard   # red main blocks deploy
+  - guardrail: G-5
+    at_tag: "@kpi"
+    scenarios:
+      - "The finished look costs almost nothing (milestone-7-calm-visual-theme.feature)"   # <= 10 KB uncompressed, zero external origins on all three screens + asset, zero new entry-screen scripts
+    measurement_window: every push (CI)
+    gate: hard
+  - kpi: KPI-6
+    at_tag: null
+    scenarios: []   # finished-feel is self-reported after 7 dogfood mornings (single-user measurement_note); not automatable
+    measurement_window: 7 dogfood mornings after slice 01 ships
+    gate: soft
 
 baselines:
   # Recorded at DELIVER completion (2026-07-23). Production not yet deployed
@@ -227,3 +249,20 @@ baselines:
       /stats read trend_views 0 vs trend_glance_shown_count 16 (KPI-3 unpolluted).
       Glance live from 2026-07-23; measured baseline 0% pre-ship (trend only reachable
       via /graph before this feature).
+  # Recorded at DELIVER completion of calm-visual-theme (2026-07-23).
+  - guardrail: G-4
+    status: at-verified
+    evidence: >
+      18/18 color pairings pass the AT-side WCAG relative-luminance checker in BOTH
+      schemes (text >= 4.5:1, non-text >= 3:1); tightest pairing light --chart-grid
+      at 3.30:1. Hard gate live in CI on every push (milestone-7 contrast + scheme-parity
+      scenarios).
+  - guardrail: G-5
+    status: at-verified
+    evidence: >
+      theme.css 3,394 bytes uncompressed (budget 10,240); 0 external origins across
+      all three screens + asset; 0 new entry-screen scripts. Hard gate live in CI
+      ("The finished look costs almost nothing").
+  - kpi: KPI-6
+    status: pending-dogfood
+    evidence: "7-morning self-report due (finished-feel >= 4/5, single-user measurement_note); record in iteration notes after slice 01 dogfood window"

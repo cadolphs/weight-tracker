@@ -1,0 +1,152 @@
+{
+  "roadmap": {
+    "project_id": "calm-visual-theme",
+    "created_at": "2026-07-23T18:00:00Z",
+    "total_steps": 4
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 01 — Calm entry theme: shared stylesheet, entry + door, light + dark (US-008)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Walking skeleton: theme.css ships with the app shell (entry screen, both schemes)",
+          "description": "Create web/static/theme.css (CUBE-lite, full DDD-4 token set incl. --chart-*), link it from index.html, and — same commit, binding Forge condition — append /static/theme.css to sw.js APP_SHELL, bump SHELL_CACHE weight-tracker-shell-v1 -> -v2, align PWA_MANIFEST colors to #FAFAF8/#1A1A1A.",
+          "criteria": [
+            "GET / HTML references /static/theme.css; GET /static/theme.css serves the stylesheet (light :root tokens + prefers-color-scheme dark override) with real FS I/O",
+            "Entry screen wears the calm theme in both appearances and stays ready for immediate typing (autofocus + decimal keypad intact)",
+            "sw.js APP_SHELL includes /static/theme.css AND SHELL_CACHE is bumped to -v2 in this same step/commit (Forge condition 1)",
+            "PWA_MANIFEST theme/background colors read #FAFAF8/#1A1A1A",
+            "All milestone 1-6 acceptance tests stay green, unmodified"
+          ],
+          "estimate": "2h",
+          "deps": [],
+          "files_to_modify": [
+            "src/weight_tracker/web/static/theme.css",
+            "src/weight_tracker/web/templates/index.html",
+            "src/weight_tracker/web/static/sw.js",
+            "src/weight_tracker/web/routes.py"
+          ],
+          "implementation_notes": "ADR-007: hand-written token stylesheet, CUBE-lite layer order Tokens -> Global -> Composition (one flow primitive) -> Utility (deliberately empty) -> Block (id/element-keyed, zero new classes) -> Exception (aria-pressed/hidden/:focus-visible). Token hexes from the DDD-4 table in feature-delta (G-4 contract); ship the FULL set including --chart-* now — the contrast scenarios (01-03) examine the whole palette. Zero new entry-screen JS (D-9 pin). routes.py delta bounded to PWA_MANIFEST color fields; Q4 (per-scheme meta theme-color vs single value) is the crafter's call here. WS scenario is already unskipped (RED live); unskip nothing else — @pending discipline: each step unskips ONLY its own scenarios. EXEMPT FROM PARADIGM: ships CSS/template/manifest data, no new Python logic; compensated by property-based contrast/parity checks at acceptance level (scenarios 8-9 exercise the full token universe in 01-03).",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-7-calm-visual-theme.feature",
+          "scenario_name": "The calm look arrives with the morning screen"
+        },
+        {
+          "id": "01-02",
+          "name": "The door wears the theme; morning flows provably invariant",
+          "description": "Theme the door (migrate + delete its inline <style>; 44 px rule goes global) and prove zero behavior change on the themed entry screen: entry-speed property, save confirmation + glance refresh, rejection preservation, wrong-passphrase refusal. Unskip scenarios 2-6 one at a time.",
+          "criteria": [
+            "Locked HTML navigation shows the door wearing the calm theme; every control >= 44 px touch target (door inline <style> deleted, rule global in theme.css)",
+            "Themed entry screen is interactive within two seconds with the glance shown (@property scenario)",
+            "A valid save confirms, refreshes the glance in place, and stores exactly one entry — byte-for-byte as before (bounded-change)",
+            "A rejected save (824) is refused with the 30.0-250.0 message, stores nothing, keeps the typed value (unbounded-preservation)",
+            "A wrong passphrase at the themed door is visibly rejected and the record stays hidden"
+          ],
+          "estimate": "2h",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/templates/door.html",
+            "src/weight_tracker/web/static/theme.css"
+          ],
+          "implementation_notes": "ADR-007 Block/Exception layers: door hooks are existing ids/elements (#door-rejection etc.) — no new classes; 44 px promoted to Global (input, button { min-height: 44px }). No GET /login route exists — the access middleware answers locked navigation with the door page (DISTILL driving-adapter note). Invariance scenarios assert existing contracts (#save-feedback, #trend-glance, POST /entries semantics) with the theme on — expected GREEN work is styling only; if any flips behavior, that is a defect in this step. @pending discipline: unskip only scenarios 2-6. EXEMPT FROM PARADIGM: CSS/template only; scenario 2 is the DISTILL-authored @property coverage for this surface, and rejection invariance rides the inherited milestone-1 closed rejection set (completeness audit C6c).",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-7-calm-visual-theme.feature",
+          "scenario_name": "The new clothes never slow the morning down; A save lands exactly as it always has; A rejected save is turned away exactly as before; The door wears the same clothes; A wrong passphrase is refused as plainly as ever at the themed door"
+        },
+        {
+          "id": "01-03",
+          "name": "Theme contract guardrails: contrast, dark parity, byte budget, progressive enhancement",
+          "description": "Green the theme's own contract: WCAG ratios in both schemes (G-4), dark block answering every light token, <= 10 KB / zero-external / zero-entry-JS budget (G-5), and the missing-theme degradation. Nudge hexes, complete dark parity, and trim bytes in theme.css as the checker demands.",
+          "criteria": [
+            "Every text pairing >= 4.5:1 and every non-text pairing >= 3:1 in BOTH schemes per CONTRAST_CONTRACT (ratios pinned, never hexes — one-hex-step nudges stay green)",
+            "The dark override block declares every custom property the light block names (no accidental daylight fallback in dim light)",
+            "Total theme weighs <= 10 KB uncompressed; no request leaves the app's origin; the entry screen carries no new scripts",
+            "With theme.css absent, a save still completes end-to-end and the entry screen opens ready for typing (unstyled but functional)"
+          ],
+          "estimate": "1h",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/static/theme.css",
+            "src/weight_tracker/web/templates/index.html"
+          ],
+          "implementation_notes": "The AT-side WCAG relative-luminance checker (domain_types.py, pure functions) is the authoritative G-4 instrument (DISTILL Q1/Q6 resolution); tightest pair is light --chart-grid ~3.3:1 — expect at most one-hex-step shifts, keep the DDD-4 ratio floors. Gridline strictness stays 3:1 (Q2); relaxing requires editing CONTRAST_CONTRACT with a wave-decision note. Missing-theme runs through the tolerant client (raise_server_exceptions=False): absence must surface as unstyled degradation, never a 500 — index.html changes only if degradation demands. @pending discipline: unskip only scenarios 8-11. Slice 01 DoD after this step: deploy + dogfood (theme.css on first visit, old -v1 cache evicted — Forge condition 1c; real morning log). EXEMPT FROM PARADIGM: contract is golden asset structure + WCAG arithmetic already property-framed in the acceptance checker; no new Python units.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-7-calm-visual-theme.feature",
+          "scenario_name": "Ink and surface keep their contrast promise in any light; Dim light is never served the daylight palette by accident; The finished look costs almost nothing; A missing theme never blocks the morning weigh-in"
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Slice 02 — Graph theme: controls + chart from the single palette (US-009)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Graph dresses from the single palette; pressed state beyond color",
+          "description": "Theme graph.html from theme.css: link the stylesheet, migrate + delete the inline <style>, replace hard-coded chart hexes with --chart-* token reads, add the matchMedia scheme listener re-rendering through the existing showGraph. Chart behavior (windowing, gaps, lens/scale semantics) untouched.",
+          "criteria": [
+            "GET /graph wears the calm theme; its inline <style> is gone (rules folded into theme.css)",
+            "aria-pressed controls are distinguishable by fill/weight/shape, not color alone, in both schemes; aria-pressed and data-view/data-scale contracts unchanged",
+            "Chart axis, gridline, and both series strokes come solely from the --chart-* tokens (no hard-coded #1f6feb/#d29922); raw gaps still render as gaps",
+            "A mid-session scheme flip re-themes page and chart without losing the selected lens and time scale (AT asserts single-palette structure; live flip = dogfood)",
+            "Graph interactive <= 2 s; all existing graph acceptance tests green, unmodified"
+          ],
+          "estimate": "2h",
+          "deps": [
+            "01-03"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/templates/graph.html",
+            "src/weight_tracker/web/static/theme.css"
+          ],
+          "implementation_notes": "ADR-007 decision 3: renderChart reads --chart-axis/--chart-grid/--chart-raw/--chart-trend via getComputedStyle at build time; one matchMedia('(prefers-color-scheme: dark)') change listener calls the existing showGraph(page.dataset.scale) — lens + scale preserved by construction; ~8 lines JS, graph page only; vendored uPlot files stay byte-identical. Deps on 01-03: consumes token values as finalized by the contrast checker. Underline/bold pressed style superseded by the Exception-layer fill treatment. @pending discipline: unskip only scenario 7. DoD before sign-off: live-flip dogfood (open graph, toggle OS dark mode) — TestClient cannot drive matchMedia (DISTILL dogfood note); then confirm mutation-testing scope (~nil, templates/CSS) per feature-delta pre-requisites. EXEMPT FROM PARADIGM: template/CSS plus browser-side scheme wiring not reachable by Python unit tests; compensated by the single-palette structural assertions (scenarios 7-9) over the full token universe.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-7-calm-visual-theme.feature",
+          "scenario_name": "The graph dresses from the same palette"
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "src/weight_tracker/"
+    ],
+    "test_directories": [
+      "tests/weight-trend-tracker/",
+      "tests/common/"
+    ],
+    "excluded_patterns": [
+      "__init__.py",
+      "__pycache__/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "audit_findings": {
+      "scenario_coverage": "11/11 (4 steps)",
+      "orphan_scenarios": 0,
+      "sizing_violations": 0,
+      "walking_skeleton_step": "01-01",
+      "dependency_violations": 0,
+      "contract_shape_coverage": "11/11 tagged (@contract-shape)",
+      "mandate_cm_a": "pass",
+      "mandate_cm_b": "pass",
+      "mandate_cm_c": "pass"
+    },
+    "dimension_scores": {
+      "happy_path_bias": "8/10",
+      "gwt_format": "10/10",
+      "business_language": "9/10",
+      "coverage_completeness": "9/10",
+      "walking_skeleton_centricity": "10/10",
+      "priority_validation": "9/10",
+      "observable_behavior": "10/10",
+      "traceability_coverage": "10/10"
+    },
+    "approved_at": "2026-07-23",
+    "review_note": "All 8 dimensions >= 7 (avg 9.38/10), all 3 mandates pass, zero blockers. Forge binding condition verified in 01-01 AC. Error-path coverage at 36% accepted for presentation-only feature with inherited behavioral paths. ADR-007 CUBE-lite mechanism validated; step-reuse 3.50x (63 invocations / 18 new decorators)."
+  }
+}

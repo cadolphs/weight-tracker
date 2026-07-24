@@ -9,6 +9,8 @@ where an enum exists.
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from enum import Enum
 
@@ -130,3 +132,142 @@ def window_start(scale: TimeScale, today: date) -> date | None:
     if scale is TimeScale.ALL:
         return None
     return today - timedelta(days=SCALE_WINDOW_DAYS[scale] - 1)
+
+
+# --------------------------------------------------------------------------
+# calm-visual-theme (US-008 / US-009) typed vocabulary + pure contrast checker
+# --------------------------------------------------------------------------
+
+
+class ColorScheme(Enum):
+    """The two first-class appearances (DISCUSS D7: follow the system scheme)."""
+
+    DAYLIGHT = "daylight"
+    DIM_LIGHT = "dim light"
+
+
+class ContrastClass(Enum):
+    """WCAG AA class of a color pairing: readable text vs distinguishable non-text."""
+
+    TEXT = "text"
+    NON_TEXT = "non-text"
+
+
+#: Required minimum contrast ratio per class (DISCUSS requirement, G-4).
+MIN_CONTRAST_RATIO: dict[ContrastClass, float] = {
+    ContrastClass.TEXT: 4.5,
+    ContrastClass.NON_TEXT: 3.0,
+}
+
+
+@dataclass(frozen=True)
+class ColorPairing:
+    """One ink-on-surface pairing from the DESIGN token table (the G-4 contract).
+
+    `ink` and `surface` name the custom properties carrying the two colors; the
+    checker asserts the RATIO between whatever hex values the served theme
+    declares -- never pinned hexes (Q6: one-hex-step nudges stay green)."""
+
+    label: str
+    ink: str
+    surface: str
+    contrast_class: ContrastClass
+
+
+#: The full G-4 contract: every pairing of the DESIGN § Design Tokens table,
+#: checked in BOTH schemes. The AT checker is the authoritative verifier (Q1/Q6).
+CONTRAST_CONTRACT: tuple[ColorPairing, ...] = (
+    ColorPairing("body text on the page", "--text", "--bg", ContrastClass.TEXT),
+    ColorPairing("muted text on the page", "--text-muted", "--bg", ContrastClass.TEXT),
+    ColorPairing("links on the page", "--link", "--bg", ContrastClass.TEXT),
+    ColorPairing("button label on its own fill", "--btn-text", "--btn-bg", ContrastClass.TEXT),
+    ColorPairing("chart axis labels", "--chart-axis", "--bg", ContrastClass.TEXT),
+    ColorPairing("control borders", "--border", "--bg", ContrastClass.NON_TEXT),
+    ColorPairing("chart gridlines", "--chart-grid", "--bg", ContrastClass.NON_TEXT),
+    ColorPairing("raw series stroke", "--chart-raw", "--bg", ContrastClass.NON_TEXT),
+    ColorPairing("trend series stroke", "--chart-trend", "--bg", ContrastClass.NON_TEXT),
+)
+
+
+class Screen(Enum):
+    """The three user-facing screens dressed by the theme (DISCUSS D8)."""
+
+    ENTRY = "entry screen"
+    DOOR = "door"
+    GRAPH = "graph page"
+
+
+def parse_screen(phrase: str) -> Screen:
+    return Screen(phrase)
+
+
+# ---- WCAG relative-luminance arithmetic (pure; Q1 resolution) --------------
+
+_HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b")
+_CUSTOM_PROPERTY = re.compile(r"(--[\w-]+)\s*:\s*(#[0-9a-fA-F]{3,6})\b")
+_DARK_BLOCK_OPEN = re.compile(r"@media[^{]*prefers-color-scheme:\s*dark[^{]*\{")
+
+
+def expand_hex(color: str) -> str:
+    """Normalise #abc to #aabbcc; pass 6-digit hexes through."""
+    raw = color.lstrip("#")
+    if len(raw) == 3:
+        raw = "".join(ch * 2 for ch in raw)
+    return f"#{raw.lower()}"
+
+
+def _linear_channel(byte_value: int) -> float:
+    scaled = byte_value / 255
+    return scaled / 12.92 if scaled <= 0.04045 else ((scaled + 0.055) / 1.055) ** 2.4
+
+
+def relative_luminance(color: str) -> float:
+    """WCAG 2.x relative luminance of an sRGB hex color."""
+    raw = expand_hex(color).lstrip("#")
+    red, green, blue = (int(raw[i : i + 2], 16) for i in (0, 2, 4))
+    return (
+        0.2126 * _linear_channel(red)
+        + 0.7152 * _linear_channel(green)
+        + 0.0722 * _linear_channel(blue)
+    )
+
+
+def contrast_ratio(ink: str, surface: str) -> float:
+    """WCAG contrast ratio (>= 1.0) between two hex colors."""
+    lighter, darker = sorted((relative_luminance(ink), relative_luminance(surface)), reverse=True)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _dark_block(css: str) -> str:
+    """The body of the dim-light override block, or '' when none is declared."""
+    opened = _DARK_BLOCK_OPEN.search(css)
+    if opened is None:
+        return ""
+    depth, start = 1, opened.end()
+    for position in range(start, len(css)):
+        depth += {"{": 1, "}": -1}.get(css[position], 0)
+        if depth == 0:
+            return css[start:position]
+    return css[start:]
+
+
+def scheme_token_maps(css: str) -> dict[ColorScheme, dict[str, str]]:
+    """Custom-property -> hex maps per scheme, parsed from the served stylesheet.
+
+    Daylight = declarations outside the dark media block; dim light = daylight
+    overridden by the declarations inside it (the cascade, modelled purely)."""
+    dark_body = _dark_block(css)
+    light_body = css.replace(dark_body, "") if dark_body else css
+    daylight = {name: expand_hex(value) for name, value in _CUSTOM_PROPERTY.findall(light_body)}
+    overrides = {name: expand_hex(value) for name, value in _CUSTOM_PROPERTY.findall(dark_body)}
+    return {ColorScheme.DAYLIGHT: daylight, ColorScheme.DIM_LIGHT: {**daylight, **overrides}}
+
+
+def dark_override_names(css: str) -> frozenset[str]:
+    """The custom properties the dim-light block declares in its own right."""
+    return frozenset(name for name, _ in _CUSTOM_PROPERTY.findall(_dark_block(css)))
+
+
+def hex_colors_in(document: str) -> tuple[str, ...]:
+    """Every hard-coded hex color literal in a document (single-palette guard)."""
+    return tuple(_HEX_COLOR.findall(document))

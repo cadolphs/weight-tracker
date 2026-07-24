@@ -46,13 +46,22 @@ from typing import Any
 
 from argon2 import PasswordHasher
 from domain_types import (
+    CONTRAST_CONTRACT,
+    MIN_CONTRAST_RATIO,
     TEST_PASSPHRASE,
+    ColorScheme,
+    ContrastClass,
     RateDisposition,
     RejectionReason,
+    Screen,
     TimeScale,
     TrendDirection,
     ViewMode,
+    contrast_ratio,
+    dark_override_names,
+    hex_colors_in,
     parse_day,
+    scheme_token_maps,
 )
 from fake_clock import FakeClock
 from state_delta import assert_state_delta, set_to, unchanged
@@ -101,6 +110,7 @@ class TrackerComposition:
         self.system = SystemService(self)
         self.clock = ClockService(self)
         self.glance = GlanceService(self)
+        self.theme = ThemeService(self)
 
     # -- composition root (lazy: nothing is built until first use) ----------------
 
@@ -914,3 +924,196 @@ class GlanceService(_Service):
     def assert_delivered_times(self, times: int) -> None:
         delivered = self.capture()["telemetry.trend_glance_shown_count"]
         assert delivered == times, f"expected {times} glance deliveries, counted {delivered}"
+
+
+# ---------------------------------------------------------------- calm visual theme
+
+#: The one new artifact of calm-visual-theme, served by the EXISTING static route.
+THEME_ASSET_PATH = "/static/theme.css"
+#: DISCUSS D9 / G-5 pin: total added CSS budget, uncompressed.
+THEME_BUDGET_BYTES = 10 * 1024
+#: Global comfortable-touch promise (DISCUSS: >= 44 px everywhere, door rule promoted).
+TOUCH_TARGET_RULE = re.compile(r"min-height:\s*44px")
+#: Pressed-beyond-color promise (US-009): the aria-pressed state is styled in its own right.
+PRESSED_STATE_RULE = re.compile(r'\[aria-pressed="true"\]')
+#: Reaching beyond the tracker's own walls (G-5: zero external requests).
+OTHER_ORIGIN_MARKS = ("http://", "https://", 'src="//', 'href="//', "url(//", "@import")
+
+
+class ThemeService(_Service):
+    """Theme delivery + G-4/G-5 verification (US-008/US-009, ADR-007, Q1/Q6).
+
+    The theme is a pure static asset with an EMPTY mutation universe (DESIGN):
+    every method here is a read-only probe, so no state-delta applies (Mandate 8
+    is carried by the reused logging/glance steps in the same scenarios). The
+    contrast checker below is the AUTHORITATIVE G-4 instrument: WCAG
+    relative-luminance arithmetic (pure, in domain_types) over the hex tokens
+    the served asset actually declares -- pinned to required RATIOS, never to
+    hex values, so one-hex-step nudges (Q6) stay green."""
+
+    def _authed_probe(self) -> Any:
+        """Tolerant authed client: server faults become status codes, never raises,
+        so a missing asset fails a 200-assertion (RED) instead of erroring (BROKEN)."""
+        from fastapi.testclient import TestClient
+
+        if getattr(self, "_probe", None) is None:
+            self._probe = TestClient(self.comp._build(), raise_server_exceptions=False)
+            resp = self._probe.post("/login", data={"passphrase": TEST_PASSPHRASE})
+            assert resp.status_code in (200, 303), f"probe login failed: {resp.status_code}"
+        return self._probe
+
+    def _locked_browser(self) -> Any:
+        """A fresh cookie-less browser navigation: what a locked visitor sees."""
+        from fastapi.testclient import TestClient
+
+        return TestClient(self.comp._build(), raise_server_exceptions=False)
+
+    def _page_html(self, screen: Screen) -> str:
+        if screen is Screen.DOOR:
+            resp = self._locked_browser().get("/", headers=BROWSER_HTML)
+        else:
+            path = {Screen.ENTRY: "/", Screen.GRAPH: "/graph"}[screen]
+            resp = self._authed_probe().get(path, headers=BROWSER_HTML)
+        ctx_ok = resp.status_code in (200, 401)  # the door answers 401 with its page
+        assert ctx_ok, f"the {screen.value} did not open: {resp.status_code}"
+        return resp.text
+
+    def _theme_css(self, ctx: SimpleNamespace) -> str:
+        if getattr(ctx, "theme_css", None) is None:
+            self.fetch_delivered(ctx)
+        return ctx.theme_css
+
+    # -- wearing / delivery -------------------------------------------------
+
+    def assert_screen_wears_theme(self, ctx: SimpleNamespace, screen: Screen) -> None:
+        html = self._page_html(screen)
+        assert THEME_ASSET_PATH in html and "stylesheet" in html, (
+            f"the {screen.value} must wear the calm theme "
+            f"(a stylesheet link to {THEME_ASSET_PATH}), but its page carries none"
+        )
+
+    def fetch_delivered(self, ctx: SimpleNamespace) -> None:
+        """Fetch the theme from the tracker itself; THE RED anchor while it is unbuilt."""
+        resp = self._authed_probe().get(THEME_ASSET_PATH)
+        assert resp.status_code == 200, (
+            f"the calm theme must be delivered by the tracker itself at {THEME_ASSET_PATH}, "
+            f"got {resp.status_code}"
+        )
+        ctx.theme_css, ctx.theme_bytes = resp.text, len(resp.content)
+
+    def assert_dressed_for_both_lights(self, ctx: SimpleNamespace) -> None:
+        appearances = scheme_token_maps(self._theme_css(ctx))
+        for scheme in ColorScheme:
+            missing = {"--bg", "--text"} - appearances[scheme].keys()
+            assert not missing, (
+                f"the theme must define a {scheme.value} appearance "
+                f"(page and ink colors), missing {sorted(missing)}"
+            )
+
+    def examine_appearances(self, ctx: SimpleNamespace) -> None:
+        ctx.appearances = scheme_token_maps(self._theme_css(ctx))
+
+    # -- G-4: the contrast contract ------------------------------------------
+
+    def assert_contrast_class_holds(
+        self, ctx: SimpleNamespace, contrast_class: ContrastClass
+    ) -> None:
+        required = MIN_CONTRAST_RATIO[contrast_class]
+        complaints = [
+            f"{pairing.label} in {scheme.value}: {self._pairing_verdict(ctx, scheme, pairing)}"
+            for scheme in ColorScheme
+            for pairing in CONTRAST_CONTRACT
+            if pairing.contrast_class is contrast_class
+            and self._pairing_verdict(ctx, scheme, pairing) is not None
+        ]
+        assert not complaints, (
+            f"every {contrast_class.value} pairing must reach {required}:1 "
+            f"in both lights (G-4), but:\n  " + "\n  ".join(complaints)
+        )
+
+    def _pairing_verdict(self, ctx: SimpleNamespace, scheme: ColorScheme, pairing) -> str | None:
+        tokens = ctx.appearances[scheme]
+        if pairing.ink not in tokens or pairing.surface not in tokens:
+            return f"colors {pairing.ink}/{pairing.surface} are not declared"
+        ratio = contrast_ratio(tokens[pairing.ink], tokens[pairing.surface])
+        required = MIN_CONTRAST_RATIO[pairing.contrast_class]
+        return None if ratio >= required else f"{ratio:.2f}:1 falls short of {required}:1"
+
+    def assert_dim_light_answers_daylight(self, ctx: SimpleNamespace) -> None:
+        contract_names = {p.ink for p in CONTRAST_CONTRACT} | {p.surface for p in CONTRAST_CONTRACT}
+        declared = ctx.appearances[ColorScheme.DAYLIGHT].keys() & contract_names
+        unanswered = declared - dark_override_names(self._theme_css(ctx))
+        assert not unanswered, (
+            "every color the daylight appearance names must be answered in dim light "
+            f"(or 06:45 gets the flashbang back), unanswered: {sorted(unanswered)}"
+        )
+
+    # -- G-5: the cost of the look --------------------------------------------
+
+    def tally_cost(self, ctx: SimpleNamespace) -> None:
+        self.fetch_delivered(ctx)
+        ctx.dressed_pages = {screen: self._page_html(screen) for screen in Screen}
+
+    def assert_budget_kept(self, ctx: SimpleNamespace, kilobytes: int) -> None:
+        assert ctx.theme_bytes <= kilobytes * 1024, (
+            f"the whole look must weigh no more than {kilobytes} KB uncompressed (G-5), "
+            f"but weighs {ctx.theme_bytes} bytes"
+        )
+
+    def assert_self_contained(self, ctx: SimpleNamespace) -> None:
+        documents = {"the theme itself": ctx.theme_css} | {
+            f"the {screen.value}": html for screen, html in ctx.dressed_pages.items()
+        }
+        reaching = {
+            name: mark
+            for name, doc in documents.items()
+            for mark in OTHER_ORIGIN_MARKS
+            if mark in doc
+        }
+        assert not reaching, (
+            f"no screen may reach beyond the tracker's own walls (G-5), but: {reaching}"
+        )
+
+    def assert_no_new_entry_moving_parts(self, ctx: SimpleNamespace) -> None:
+        entry_html = ctx.dressed_pages[Screen.ENTRY]
+        scripts = entry_html.count("<script")
+        assert scripts == 1 and "<script src" not in entry_html, (
+            "the morning screen must gain no new moving parts (G-5: zero new "
+            f"entry-screen scripts beyond the existing inline one), found {scripts}"
+        )
+
+    # -- structural promises carried by the asset ------------------------------
+
+    def assert_touch_comfort_promised(self, ctx: SimpleNamespace) -> None:
+        assert TOUCH_TARGET_RULE.search(self._theme_css(ctx)), (
+            "the theme must promise comfortable touch targets everywhere "
+            "(the door's 44px rule, now global)"
+        )
+
+    def assert_pressed_beyond_color(self, ctx: SimpleNamespace) -> None:
+        assert PRESSED_STATE_RULE.search(self._theme_css(ctx)), (
+            "the pressed control must be promised a look of its own beyond color "
+            "(a styled pressed state in the theme)"
+        )
+
+    def assert_chart_single_palette(self, ctx: SimpleNamespace) -> None:
+        hardcoded = hex_colors_in(self._page_html(Screen.GRAPH))
+        assert not hardcoded, (
+            "the chart must draw every line from the tracker's single palette; "
+            f"the graph page still carries its own colors: {hardcoded}"
+        )
+
+    # -- progressive enhancement (US-008 domain example 3) ---------------------
+
+    def break_delivery(self, monkeypatch: Any) -> None:
+        """The theme goes missing: the static shelf is emptied for this scenario."""
+        from weight_tracker.web import routes
+
+        bare_shelf = self.comp.db_path.parent / "bare-static-shelf"
+        bare_shelf.mkdir(exist_ok=True)
+        monkeypatch.setattr(routes, "_static_dir", bare_shelf)
+
+    def assert_morning_still_ready(self, ctx: SimpleNamespace) -> None:
+        probe = SimpleNamespace(response=self.comp.screen.open_entry())
+        assert probe.response.status_code == 200, "the morning screen must still open"
+        self.comp.screen.assert_ready_for_typing(probe)

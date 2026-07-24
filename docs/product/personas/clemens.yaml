@@ -17,8 +17,9 @@ persona:
     - "Current app buries weight entry behind dashboards, promos, and multiple taps (~30-45 s per log)"
     - "Raw daily weight is noisy (water weight, meals) and emotionally misleading"
     - "Paying for 20 features to use 1"
+    - "Default unstyled HTML looks unfinished for a tool used 365 mornings a year; a bright white page in a dim bathroom at 06:45" # added 2026-07-23 (calm-visual-theme)
   values:
     - "Single-purpose minimalism: no calories, no workouts, no gamification"
     - "Ownership of his own data"
   measurement_note: "Single-user product: all KPIs are self-instrumented or self-reported"
-  features: [weight-trend-tracker]
+  features: [weight-trend-tracker, home-trend-display, calm-visual-theme]
