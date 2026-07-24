@@ -26,6 +26,16 @@
       <button data-window="ALL">All</button>
     </nav>
     <div id="chart"></div>
+    {% if history_rows %}
+    <h2>Complete record</h2>
+    <!-- The whole record, newest first, server-rendered from the same read the
+         raw plot draws (US-012, D-17). Display-only rows: no per-row markup,
+         handlers, or affordances (02-02's budget depends on lean rows). -->
+    <ul id="history-entries">
+      {% for row in history_rows %}<li>{{ row }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
     <p id="empty-invite" hidden>No entries yet — <a href="/">log your first weight</a>.</p>
     <p><a href="/">Back to today's entry</a></p>
   </main>

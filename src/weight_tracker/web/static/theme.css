@@ -150,14 +150,16 @@ main > * + * {
 
 /* Entries lists (US-011/US-012, D9): quiet display-only rows in the one shared
    grammar -- neutral ink, hairline separation, no affordances to dress. */
-#recent-entries {
+#recent-entries,
+#history-entries {
   list-style: none;
   margin-block: var(--space-3) 0;
   padding: 0;
   color: var(--text-muted);
 }
 
-#recent-entries li {
+#recent-entries li,
+#history-entries li {
   padding-block: var(--space-1);
   border-top: 1px solid var(--border);
 }

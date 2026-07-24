@@ -238,6 +238,13 @@ def recent_entry_rows(entries: Sequence[Entry]) -> list[str]:
     return [entry_row_text(entry.day, entry.weight_kg) for entry in entries[:RECENT_LIST_ENTRIES]]
 
 
+def complete_record_rows(entries: Sequence[Entry]) -> list[str]:
+    """The COMPLETE record as display rows, newest first (US-012, D-17): the
+    whole all_entries() read, never windowed by the chart's selected scale.
+    Same one row grammar as the front page's recent list (Mandate-12)."""
+    return [entry_row_text(entry.day, entry.weight_kg) for entry in entries]
+
+
 def recent_entries_payload(entries: Sequence[Entry]) -> list[dict[str, Any]]:
     """The save response's `recent` hand-back (D-19): the SAME newest-first
     seven-entry slice the front page renders (01-04's one slice), spoken as
@@ -493,14 +500,23 @@ def build_router(
         never loses the chosen window. The core windows; this shell renders.
 
         A History-page open IS deliberate trend study (ADR-009, KPI-3): one
-        trend.study.opened event per open, regardless of the ?view=/?scale= deep link."""
+        trend.study.opened event per open, regardless of the ?view=/?scale= deep link.
+
+        The complete record rides beneath the chart (US-012, D-17): server-rendered
+        from the same newest-first all_entries() read the raw plot draws, ALWAYS
+        the whole record regardless of the selected window; an empty record
+        renders no list (the first-log invite stands alone, A16)."""
         store.append_event(
             ts=clock.now_utc().isoformat(), name=TREND_STUDY_OPENED_EVENT, payload="{}"
         )
         return _templates.TemplateResponse(
             request=request,
             name="graph.html",
-            context={"view": view, "scale": time_scale_or_bad_request(scale).value},
+            context={
+                "view": view,
+                "scale": time_scale_or_bad_request(scale).value,
+                "history_rows": complete_record_rows(store.all_entries()),
+            },
         )
 
     @router.post("/telemetry/trend-study")
