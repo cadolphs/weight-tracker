@@ -1,0 +1,56 @@
+{
+  "roadmap": {
+    "feature_id": "fix-device-day-reads",
+    "goal": "Read surfaces (yesterday anchor, /entries and /trend windows) use the device-local day, not server UTC (A5 rule extended to reads). RCA: nw-bugfix 2026-07-24.",
+    "created": "2026-07-24",
+    "author": "nw-bugfix orchestrator (RCA: nw-troubleshooter, user-approved Option 1)",
+    "project_id": "fix-device-day-reads",
+    "created_at": "2026-07-24T13:45:00Z",
+    "total_steps": 1
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Regression + fix: client-authoritative day frame",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Skew-frame regression ATs RED, then client-day fix GREEN",
+          "description": "Author skew-frame regression scenarios (device day != UTC day) asserting RENDERED surfaces, confirm they fail against current code, then implement client-authoritative day frame: recent-days map + inline-script yesterday anchor on GET /, today=<device day> param on /entries and /trend fetches with C6-safe server validation.",
+          "criteria": [
+            "Regression scenarios fail against pre-fix code for the business reason (evening skew shows next-day frame), with a non-tautological oracle: expected values derived from device_day, never from the server clock",
+            "At 02:00 UTC with the phone still on the previous day, the entry screen's yesterday anchor names the entry from device_day - 1 (this morning's entry is never labeled yesterday)",
+            "At the same skew moment, the 1W raw window spans [device_day - 6, device_day] and the 1W trend window likewise — the oldest day does not vanish in the evening",
+            "A hostile or malformed today= value on /entries or /trend never 500s (400 or bounded UTC fallback, C6 preserved); the value is bounded by the same MAX_DEVICE_SKEW_DAYS rule as saves",
+            "Entry screen script budget AT stays green: exactly one inline script block, zero external scripts (G-5); glance, save, rejection flows byte-for-byte unchanged",
+            "Full suite green; ports.py ClockPort contract wording strengthened; ADR-007 prose amended to 'zero new script blocks / external scripts' (user-approved 2026-07-24)"
+          ],
+          "estimate": "1d",
+          "deps": [],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/index.html",
+            "src/weight_tracker/web/templates/graph.html",
+            "src/weight_tracker/ports.py",
+            "docs/product/architecture/adr-007-theming-mechanism.md",
+            "tests/weight-trend-tracker/acceptance/device-day-frame.feature",
+            "tests/weight-trend-tracker/acceptance/steps/steps_day_frame.py",
+            "tests/weight-trend-tracker/acceptance/steps/test_day_frame.py",
+            "tests/weight-trend-tracker/acceptance/steps/composition.py",
+            "tests/weight-trend-tracker/acceptance/steps/fake_clock.py"
+          ],
+          "implementation_notes": "RCA chain: routes.py:276 yesterday=now_utc-1; routes.py:332,348 windows on now_utc.date(). Core already parameterized (types.py windowing takes today) — fix is shell-only. GET /: replace server-picked yesterday_kg with a small recent-days map (last ~4 entries {iso_day: kg}) embedded as Jinja value INSIDE the existing inline script; script computes deviceLocalDay() and renders #yesterday-reference from map[device_day-1]; no new script blocks, no external requests. graph.html: append today=deviceLocalDay() to /entries and /trend fetches. Server: parse+validate today param (total parser precedent: core/types.py parse_time_scale — hostile input 400), bound by MAX_DEVICE_SKEW_DAYS vs server UTC, fall back to UTC when absent (curl/API compat). Test harness: fake_clock/composition already have device_day override for POST (composition.py:97,171-172) — extend to render/fetch paths; break the resolve_day() oracle tautology (composition.py:154-158): expected yesterday derives from device_day. Keep telemetry/event timestamps UTC (by design). Journey failure-mode addition rides the finalize commit, orchestrator-owned.",
+          "test_file": "tests/weight-trend-tracker/acceptance/device-day-frame.feature",
+          "scenario_name": "authored in RED phase (bugfix flow): evening yesterday anchor; evening 1W raw window; evening 1W trend window; hostile today value"
+        }
+      ]
+    }
+  ],
+  "implementation_scope": "Shell + templates + tests only; pure core untouched (already day-parameterized). Telemetry stays UTC.",
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-bugfix flow (RCA peer-reviewed by nw-troubleshooter-reviewer; fix direction user-approved 2026-07-24)",
+    "approved_at": "2026-07-24",
+    "review_note": "Minimal bugfix roadmap per nw-bugfix Phase 3; single step, regression-first."
+  }
+}

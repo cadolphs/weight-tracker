@@ -38,7 +38,7 @@ steps:
       - name: "today_date"
         source: "device-local calendar date"
         displayed_as: "preselected date, one-entry-per-day key"
-        consumers: ["step 1 default date", "one-per-day rule"]
+        consumers: ["step 1 default date", "one-per-day rule", "step 1 yesterday anchor (device day, fix-device-day-reads)", "steps 2-3 window frame (?today= from device, fix-device-day-reads)"]
       - name: "unit_label_kg"
         source: "single UI constant (metric only)"
         displayed_as: "'kg' suffix"
@@ -59,6 +59,7 @@ steps:
       - "Home glance inflating the deliberate trend-view KPI counter (must be counted separately)"
       - "Weekly rate shown on a days-old record (noise dressed as insight; hold rate until >=7-day span)"
       - "Bright light-theme screen in a dark bathroom at 06:45 (presentation must follow the system color scheme)" # calm-visual-theme
+      - "Evening render shows the next-day frame (read surfaces — yesterday anchor, graph windows — must use the device day, never server UTC)" # fix-device-day-reads
     gherkin: |
       Scenario: Morning weight is captured in seconds
         Given it is Monday 21 July 2026 at 06:45 and Clemens has not logged today
@@ -140,6 +141,9 @@ changelog:
   - date: "2026-07-23"
     feature: "home-trend-display"
     change: "Step 1 extended: glanceable trend + weekly rate on the entry screen with in-place post-save refresh; new shared artifact current_trend_display (source TrendProjection) with step 1<->3 consistency rule; failure modes added (degrade-to-absent, KPI-counter separation, sparse-rate honesty); step 1 exit emotion now 'done and oriented'. Steps 2-4 untouched."
+  - date: "2026-07-24"
+    feature: "fix-device-day-reads"
+    change: "Bugfix (nw-bugfix RCA): A5 extended from writes to reads. Yesterday anchor now rendered phone-side from a recent-days map; /entries and /trend accept a validated, skew-bounded ?today= from the device; ClockPort contract tightened (UTC only for sanity bound, telemetry, /stats). New failure mode + today_date consumers recorded."
   - date: "2026-07-23"
     feature: "calm-visual-theme"
     change: "Presentation-only delta: calm-minimal theme following the system color scheme across entry, graph, and door screens. No step, flow, or shared-artifact changes. Failure modes added: bright screen in dark bathroom (step 1), dark-scheme chart illegibility (step 2/3). Zero-friction start of the emotional arc is a protected guardrail (KPI-1 unchanged)."
