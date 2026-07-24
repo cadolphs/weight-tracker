@@ -115,6 +115,39 @@
       glanceLine.textContent = glanceText;
     }
 
+    // The one row grammar, spoken client-side for the in-place repaint (A18):
+    // 'Fri 24 Jul — 82.2 kg' -- weekday, day without a leading zero, month.
+    const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    function entryRowText(isoDate, weightKg) {
+      const [year, month, day] = isoDate.split("-").map(Number);
+      const weekday = WEEKDAYS[new Date(year, month - 1, day).getDay()];
+      return `${weekday} ${day} ${MONTHS[month - 1]} — ${weightKg.toFixed(1)} kg`;
+    }
+
+    // In-place recent-list repaint (D-19): rebuilt from the save's own hand-back
+    // -- no reload, no extra fetch. A missing or empty hand-back removes the
+    // list: absent, never stale (D-13 pin extended).
+    function refreshRecentList(recent) {
+      let list = document.getElementById("recent-entries");
+      if (!recent || recent.length === 0) {
+        if (list) list.remove();
+        return;
+      }
+      if (!list) {
+        list = document.createElement("ul");
+        list.id = "recent-entries";
+        list.setAttribute("aria-label", "Recent entries");
+        entryForm.insertAdjacentElement("afterend", list);
+      }
+      list.replaceChildren(...recent.map((entry) => {
+        const row = document.createElement("li");
+        row.textContent = entryRowText(entry.date, entry.weight_kg);
+        return row;
+      }));
+    }
+
     entryForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const response = await fetch("/entries", {
@@ -132,6 +165,10 @@
       if (outcome.outcome === "saved") {
         feedback.textContent = outcome.confirmation;
         refreshGlance(outcome.glance);
+        refreshRecentList(outcome.recent);
+        // Post-save repaint (A15): the shared engine refetches the graph at its
+        // CURRENT lens/scale -- listening in graph.js, silent when no mount exists.
+        document.dispatchEvent(new CustomEvent("entry-saved"));
         weightInput.value = "";
       } else {
         feedback.textContent = outcome.message;

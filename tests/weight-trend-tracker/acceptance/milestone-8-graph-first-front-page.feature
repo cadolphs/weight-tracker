@@ -44,7 +44,7 @@ Feature: The morning opens on the whole picture
     When he chooses the "1Y" window and then the Raw lens on the front page
     Then both taps are counted as deliberate study
 
-  @pending @driving_port @US-010 @contract-shape:bounded-change
+  @driving_port @US-010 @contract-shape:bounded-change
   Scenario: Saving repaints the morning picture in place
     Given his weight has been falling for the last two weeks
     And he has seen the morning picture end at yesterday
@@ -96,7 +96,7 @@ Feature: The morning opens on the whole picture
     And the recent list begins with "Fri 24 Jul — 82.2 kg"
     And Sunday 19 July 2026 appears nowhere in the recent list
 
-  @pending @driving_port @US-011 @contract-shape:bounded-change
+  @driving_port @US-011 @contract-shape:bounded-change
   Scenario: Today's save goes straight to the top
     Given he logged 82.4 kg on 23 July 2026
     And the entry screen's recent list begins with "Thu 23 Jul — 82.4 kg"

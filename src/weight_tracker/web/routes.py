@@ -238,6 +238,17 @@ def recent_entry_rows(entries: Sequence[Entry]) -> list[str]:
     return [entry_row_text(entry.day, entry.weight_kg) for entry in entries[:RECENT_LIST_ENTRIES]]
 
 
+def recent_entries_payload(entries: Sequence[Entry]) -> list[dict[str, Any]]:
+    """The save response's `recent` hand-back (D-19): the SAME newest-first
+    seven-entry slice the front page renders (01-04's one slice), spoken as
+    {date, weight_kg} wire pairs for the client's in-place list repaint --
+    route-level enrichment on the glance/confirmation precedent, port untouched."""
+    return [
+        {"date": entry.day.isoformat(), "weight_kg": entry.weight_kg}
+        for entry in entries[:RECENT_LIST_ENTRIES]
+    ]
+
+
 def speed_summary(samples: Sequence[int]) -> dict[str, Any]:
     """KPI-1 speed report over client-measured entry durations: median, p90, count.
 
@@ -431,6 +442,7 @@ def build_router(
             payload=json.dumps({"date": day.isoformat(), "entry_ms": entry.entry_ms}),
         )
         saved = Saved(day=day, weight_kg=weight_kg)
+        refreshed = store.all_entries()  # newest first, the just-saved day on top
         return {
             "outcome": "saved",
             "confirmation": saved.confirmation,
@@ -438,7 +450,9 @@ def build_router(
             "weight_kg": weight_kg,
             # In-place refresh (D-13): the glance recomputed with today's entry rides
             # on the save response -- a route-level concern, never a port widening.
-            "glance": deliver_glance(store.all_entries()),
+            "glance": deliver_glance(refreshed),
+            # In-place list repaint (D-19, same read): the refreshed recent head.
+            "recent": recent_entries_payload(refreshed),
         }
 
     @router.get("/entries")

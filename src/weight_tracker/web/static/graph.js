@@ -183,5 +183,12 @@
   // so the selected lens (page.dataset.view) and time scale survive by construction.
   matchMedia("(prefers-color-scheme: dark)")
     .addEventListener("change", () => showGraph(page.dataset.scale));
+  // Post-save repaint (A15/D-19): the save handler announces the fresh entry;
+  // the engine refetches at the mount's CURRENT lens/scale. Ambient by design
+  // (D-16: the data reads are telemetry-free, so a repaint adds nothing to
+  // KPI-3). A failing refetch clears the chart: absent, never stale (D-13 pin).
+  document.addEventListener("entry-saved", () => {
+    showGraph(page.dataset.scale).catch(clearChart);
+  });
   showView(page.dataset.view);
 })();
