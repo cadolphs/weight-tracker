@@ -223,6 +223,13 @@ def recent_weights_map(entries: Sequence[Entry]) -> dict[str, float]:
 RECENT_LIST_ENTRIES = 7
 
 
+def recent_head(entries: Sequence[Entry]) -> Sequence[Entry]:
+    """THE newest-first seven-entry slice (D-18/D-19, 01-04's one slice): the
+    front page's recent list and the save response's hand-back both read this
+    single head, so the two surfaces cannot drift apart."""
+    return entries[:RECENT_LIST_ENTRIES]
+
+
 def entry_row_text(day: date, weight_kg: float) -> str:
     """The ONE row grammar every entries list speaks (A18, Mandate-12):
     'Fri 24 Jul — 82.2 kg' -- weekday, day without a leading zero, month, an em
@@ -235,7 +242,7 @@ def recent_entry_rows(entries: Sequence[Entry]) -> list[str]:
     """The last 7 entries as display rows, newest first: a pure slice of the
     newest-first all_entries() read the front page already performs (D-18,
     zero port changes). Fewer entries -> a shorter list; none -> no rows."""
-    return [entry_row_text(entry.day, entry.weight_kg) for entry in entries[:RECENT_LIST_ENTRIES]]
+    return [entry_row_text(entry.day, entry.weight_kg) for entry in recent_head(entries)]
 
 
 def complete_record_rows(entries: Sequence[Entry]) -> list[str]:
@@ -245,15 +252,19 @@ def complete_record_rows(entries: Sequence[Entry]) -> list[str]:
     return [entry_row_text(entry.day, entry.weight_kg) for entry in entries]
 
 
+def entry_wire_pair(entry: Entry) -> dict[str, Any]:
+    """The ONE {date, weight_kg} wire shape an entry travels as: the /entries
+    read-back and the save's `recent` hand-back speak it from this single place
+    (D-18 single source -- the two surfaces must tell the same story)."""
+    return {"date": entry.day.isoformat(), "weight_kg": entry.weight_kg}
+
+
 def recent_entries_payload(entries: Sequence[Entry]) -> list[dict[str, Any]]:
     """The save response's `recent` hand-back (D-19): the SAME newest-first
     seven-entry slice the front page renders (01-04's one slice), spoken as
     {date, weight_kg} wire pairs for the client's in-place list repaint --
     route-level enrichment on the glance/confirmation precedent, port untouched."""
-    return [
-        {"date": entry.day.isoformat(), "weight_kg": entry.weight_kg}
-        for entry in entries[:RECENT_LIST_ENTRIES]
-    ]
+    return [entry_wire_pair(entry) for entry in recent_head(entries)]
 
 
 def speed_summary(samples: Sequence[int]) -> dict[str, Any]:
@@ -469,9 +480,7 @@ def build_router(
         day_frame = day_frame_or_bad_request(today, clock.now_utc().date())
         shown = entries_in_window(stored, selected_scale, today=day_frame)
         return {
-            "entries": [
-                {"date": entry.day.isoformat(), "weight_kg": entry.weight_kg} for entry in shown
-            ],
+            "entries": [entry_wire_pair(entry) for entry in shown],
             "invite_first_log": not stored,
         }
 

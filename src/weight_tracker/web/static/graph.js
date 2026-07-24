@@ -57,6 +57,24 @@
     }
   }
 
+  // Every windowed data read speaks the same claim: the chosen scale plus the
+  // device-local day framing it (A5 extended to reads) -- one URL grammar for
+  // both lenses, so the raw and trend fetches can never frame different days.
+  async function fetchWindowedJson(path, scale) {
+    const response = await fetch(
+      `${path}?scale=${encodeURIComponent(scale)}&today=${deviceLocalDay()}`,
+    );
+    return response.json();
+  }
+
+  // One aria-pressed reflection for both control groups: the pressed button is
+  // the one whose data token matches the page's current state.
+  function reflectPressedState(buttonSelector, isSelected) {
+    for (const button of document.querySelectorAll(buttonSelector)) {
+      button.setAttribute("aria-pressed", String(isSelected(button)));
+    }
+  }
+
   function dailyGridSeries(entries) {
     const weightByDay = new Map(entries.map((e) => [e.date, e.weight_kg]));
     const dayStamps = entries.map((e) => Date.parse(e.date + "T00:00:00Z")).sort((a, b) => a - b);
@@ -120,9 +138,7 @@
   }
 
   async function showRaw(scale) {
-    const history = await (
-      await fetch(`/entries?scale=${encodeURIComponent(scale)}&today=${deviceLocalDay()}`)
-    ).json();
+    const history = await fetchWindowedJson("/entries", scale);
     showInvite(history.invite_first_log);
     if (history.entries.length === 0) return clearChart();
     renderChart(dailyGridSeries(history.entries), (palette) => ({
@@ -134,9 +150,7 @@
   }
 
   async function showTrend(scale) {
-    const trend = await (
-      await fetch(`/trend?scale=${encodeURIComponent(scale)}&today=${deviceLocalDay()}`)
-    ).json();
+    const trend = await fetchWindowedJson("/trend", scale);
     showInvite(trend.points.length === 0);
     if (trend.points.length === 0) return clearChart();
     renderChart(trendGridSeries(trend.points), (palette) => ({
@@ -148,9 +162,7 @@
 
   async function showGraph(scale) {
     page.dataset.scale = scale;
-    for (const button of document.querySelectorAll("#scale-picker button")) {
-      button.setAttribute("aria-pressed", String(button.dataset.window === scale));
-    }
+    reflectPressedState("#scale-picker button", (button) => button.dataset.window === scale);
     if (page.dataset.view === "trend") await showTrend(scale);
     else await showRaw(scale);
   }
@@ -159,9 +171,7 @@
   // toggling never resets the chosen window.
   async function showView(view) {
     page.dataset.view = view;
-    for (const button of document.querySelectorAll("#view-toggle button")) {
-      button.setAttribute("aria-pressed", String(button.dataset.lens === view));
-    }
+    reflectPressedState("#view-toggle button", (button) => button.dataset.lens === view);
     await showGraph(page.dataset.scale);
   }
 
