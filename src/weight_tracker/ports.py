@@ -12,7 +12,14 @@ class ClockPort(Protocol):
     """Driven external, non-deterministic port -- faked in acceptance tests (FakeClock)."""
 
     def now_utc(self) -> datetime:
-        """Current UTC instant. Used only for the future-date sanity bound and event timestamps."""
+        """Current UTC instant.
+
+        The ONLY sanctioned uses: the future-date sanity bound on saves
+        (server_utc_today + MAX_DEVICE_SKEW_DAYS), telemetry event timestamps,
+        the /stats rolling KPI week, and bounding a claimed ?today= day frame.
+        Read surfaces must NEVER derive a user-visible calendar day from this
+        clock -- the device-local day is canonical (A5, extended from writes
+        to reads by fix-device-day-reads) and arrives as request data."""
         ...
 
 

@@ -35,6 +35,7 @@ HTTP surface contract (executable spec for DELIVER -- see build_app docstring):
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -111,6 +112,7 @@ class TrackerComposition:
         self.clock = ClockService(self)
         self.glance = GlanceService(self)
         self.theme = ThemeService(self)
+        self.day_frame = DayFrameService(self)
 
     # -- composition root (lazy: nothing is built until first use) ----------------
 
@@ -544,6 +546,14 @@ class GraphService(_Service):
         assert 'data-view="trend"' in ctx.response.text, "the trend must be the default lens"
 
 
+#: Post-fix render source (fix-device-day-reads): the recent-days map the entry
+#: screen embeds inside its one inline script for the PHONE-side yesterday render.
+RECENT_WEIGHTS_MAP = re.compile(r"const recentWeights = (\{[^;]*\});")
+#: Pre-fix render source: the server-rendered anchor paragraph. Kept as fallback
+#: so the skew regression fails on the wrong VALUE shown, not on a missing marker.
+SERVER_RENDERED_YESTERDAY = re.compile(r"yesterday: (\d+\.\d) kg")
+
+
 class ScreenService(_Service):
     def open_entry(self) -> Any:
         return self.comp.actor().get("/")
@@ -565,13 +575,29 @@ class ScreenService(_Service):
         assert "autofocus" in html, "the weight field must be focused on open"
         assert 'inputmode="decimal"' in html, "a decimal keypad must come up"
 
+    def shown_yesterday_kg(self, ctx: SimpleNamespace) -> float | None:
+        """The yesterday anchor as the phone SHOWS it. Post-fix pages embed a
+        recent-days map and render client-side: emulate that exact lookup with
+        the DEVICE-local yesterday (device_day preferred over the server clock
+        via resolve_day -- at the skew moment the two diverge). Pre-fix pages
+        carried a server-rendered paragraph: read it, so the regression fails
+        on the wrong value shown, never on a missing marker."""
+        embedded = RECENT_WEIGHTS_MAP.search(ctx.response.text)
+        if embedded is not None:
+            weights = json.loads(embedded.group(1))
+            return weights.get(self.comp.resolve_day("yesterday").isoformat())
+        line = SERVER_RENDERED_YESTERDAY.search(ctx.response.text)
+        return float(line.group(1)) if line is not None else None
+
     def assert_yesterday(self, ctx: SimpleNamespace, kg: float) -> None:
-        assert f"yesterday: {kg:.1f} kg" in ctx.response.text, (
-            f"expected the reference 'yesterday: {kg:.1f} kg' beside the input"
+        shown = self.shown_yesterday_kg(ctx)
+        assert shown == kg, (
+            f"expected yesterday's anchor to read {kg:.1f} kg beside the input, "
+            f"the screen shows {shown}"
         )
 
     def assert_no_yesterday(self, ctx: SimpleNamespace) -> None:
-        assert "yesterday:" not in ctx.response.text, (
+        assert self.shown_yesterday_kg(ctx) is None, (
             "no yesterday reference must be shown on the first morning"
         )
 
@@ -1137,3 +1163,78 @@ class ThemeService(_Service):
         probe = SimpleNamespace(response=self.comp.screen.open_entry())
         assert probe.response.status_code == 200, "the morning screen must still open"
         self.comp.screen.assert_ready_for_typing(probe)
+
+
+# ---------------------------------------------------------------- device-day frame
+
+
+class DayFrameService(_Service):
+    """Client-authoritative day frame on READ surfaces (fix-device-day-reads).
+
+    Regression oracle contract (NON-TAUTOLOGICAL): every expected day derives
+    from the phone's declared day (composition.device_day), never from
+    fake_clock.today() -- at the 02:00-UTC skew moment the two diverge, and
+    borrowing the server clock would make the oracle agree with the bug.
+    """
+
+    def evening_skew(self, utc_day: date, device_day: date) -> None:
+        """02:00 UTC on `utc_day` while the phone still lives `device_day`."""
+        assert utc_day == device_day + timedelta(days=1), (
+            "skew frame: the UTC day must sit exactly one day ahead of the phone"
+        )
+        self.comp.fake_clock.set_small_hours_utc(utc_day)
+        self.comp.clock.set_device_day(device_day)
+
+    def _device_day(self) -> date:
+        day = self.comp.device_day
+        assert day is not None, "day-frame scenarios must declare the phone's day"
+        return day
+
+    # -- journey moves (the phone always claims its own day, as graph.html does) ---
+
+    def open_history(self, scale: TimeScale) -> Any:
+        return self.comp.actor().get(
+            "/entries", params={"scale": scale.value, "today": self._device_day().isoformat()}
+        )
+
+    def open_trend(self, scale: TimeScale, ctx: SimpleNamespace) -> None:
+        resp = self.comp.actor().get(
+            "/trend", params={"scale": scale.value, "today": self._device_day().isoformat()}
+        )
+        assert resp.status_code == 200, f"trend not available: {resp.status_code}"
+        ctx.trend = [(p["date"], p["trend_kg"]) for p in resp.json()["points"]]
+
+    def ask_with_claimed_day(self, lens: str, claimed_day: str) -> Any:
+        path = {"raw": "/entries", "trend": "/trend"}[lens]
+        return self.comp.actor().get(
+            path, params={"scale": TimeScale.ONE_WEEK.value, "today": claimed_day}
+        )
+
+    # -- outcome assertions ---------------------------------------------------------
+
+    def assert_anchor_names(self, ctx: SimpleNamespace, day: date, kg: float) -> None:
+        assert day == self._device_day() - timedelta(days=1), (
+            "scenario frame: the named day must be the phone's own yesterday"
+        )
+        shown = self.comp.screen.shown_yesterday_kg(ctx)
+        assert shown == kg, (
+            f"at the skew moment the yesterday anchor must name {day}'s {kg:.1f} kg "
+            f"(the phone's yesterday), but the screen shows {shown} -- "
+            "the server clock framed the day"
+        )
+
+    def assert_trend_spans_exactly(self, ctx: SimpleNamespace, start: date, end: date) -> None:
+        expected = [
+            (start + timedelta(days=offset)).isoformat() for offset in range((end - start).days + 1)
+        ]
+        days = sorted(day for day, _ in ctx.trend)
+        assert days == expected, (
+            f"the 1W trend must span exactly {start}..{end} in the phone's frame, got "
+            f"{days[0] if days else '-'}..{days[-1] if days else '-'} ({len(days)} days)"
+        )
+
+    def assert_garbled_day_refused(self, ctx: SimpleNamespace) -> None:
+        assert ctx.response.status_code == 400, (
+            "a garbled day claim must be turned away with 400 (C6: parse totally, "
+            f"never a silent ignore, never a 500), got {ctx.response.status_code}"
+        )

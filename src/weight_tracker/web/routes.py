@@ -29,6 +29,7 @@ from fastapi.templating import Jinja2Templates
 
 from weight_tracker.core.glance import GlanceSummary, quantize_rate, rate_glyph
 from weight_tracker.core.types import (
+    MAX_DEVICE_SKEW_DAYS,
     Entry,
     Rejected,
     RejectionReason,
@@ -95,6 +96,31 @@ def time_scale_or_bad_request(raw_scale: str) -> TimeScale:
     return scale
 
 
+def day_frame_or_bad_request(claimed_today: str | None, server_utc_today: date) -> date:
+    """Resolve the day framing a read window (A5 extended to reads).
+
+    The phone claims its local day via ?today=; absent (curl/API compat), the
+    server's own UTC day frames the window as before. A garbled claim is turned
+    away with 400 (C6: total parse, precedent `parse_time_scale`). A parseable
+    claim outside server_utc_today +/- MAX_DEVICE_SKEW_DAYS -- no real timezone
+    sits further than one calendar day from UTC -- is clamped to the nearest
+    bound: reads stay forgiving where saves stay strict, so a phone with a
+    wildly wrong clock still receives a sensible, bounded window.
+    """
+    if claimed_today is None:
+        return server_utc_today
+    try:
+        claimed_day = date.fromisoformat(claimed_today)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unrecognisable day {claimed_today!r}. Expected an ISO date (YYYY-MM-DD).",
+        ) from None
+    earliest = server_utc_today - timedelta(days=MAX_DEVICE_SKEW_DAYS)
+    latest = server_utc_today + timedelta(days=MAX_DEVICE_SKEW_DAYS)
+    return min(max(claimed_day, earliest), latest)
+
+
 def _rejected_save(rejected: Rejected, typed_value: str) -> dict[str, Any]:
     """Rejected-save response: closed reason, inline message, typed value kept for correction."""
     return {
@@ -135,10 +161,17 @@ def glance_display_text(summary: GlanceSummary) -> str:
     return f"{value_text} · {rate_glyph(quantized_rate)}{abs(quantized_rate):.2f} kg/week"
 
 
-def weight_on(entries: Sequence[Entry], day: date) -> float | None:
-    """The weight logged for `day`, if any -- read-only WeightHistory lookup
-    (yesterday anchor degrades gracefully to None on the first morning)."""
-    return next((entry.weight_kg for entry in entries if entry.day == day), None)
+#: Recent entries embedded for the phone-side yesterday anchor: enough to cover
+#: the device-local yesterday under any legitimate skew (server day +/-
+#: MAX_DEVICE_SKEW_DAYS) plus today's own entry -- never the whole record.
+RECENT_ANCHOR_ENTRIES = 4
+
+
+def recent_weights_map(entries: Sequence[Entry]) -> dict[str, float]:
+    """The latest few logged days as {iso_day: kg} for the entry screen's inline
+    script, which resolves the DEVICE-local yesterday against it (A5 extended
+    to reads) -- the server never guesses the phone's calendar frame."""
+    return {entry.day.isoformat(): entry.weight_kg for entry in entries[:RECENT_ANCHOR_ENTRIES]}
 
 
 def speed_summary(samples: Sequence[int]) -> dict[str, Any]:
@@ -271,14 +304,17 @@ def build_router(
         """Five-second entry screen: focused decimal field, yesterday's weight as
         the anchor beside the input (absent gracefully on the first morning), and
         the trend glance derived from the SAME fetched entry list (zero added I/O,
-        D-13); a render with glance data is one counted delivery (D-14)."""
+        D-13); a render with glance data is one counted delivery (D-14).
+
+        The yesterday anchor is framed by the PHONE, not the server clock
+        (fix-device-day-reads): the recent-days map rides inside the existing
+        inline script, and the client resolves its own device-local yesterday."""
         entries = store.all_entries()
-        yesterday = clock.now_utc().date() - timedelta(days=1)
         return _templates.TemplateResponse(
             request=request,
             name="index.html",
             context={
-                "yesterday_kg": weight_on(entries, yesterday),
+                "recent_weights": recent_weights_map(entries),
                 "glance_text": deliver_glance(entries),
             },
         )
@@ -326,10 +362,11 @@ def build_router(
         }
 
     @router.get("/entries")
-    def history(scale: str = "ALL") -> dict[str, Any]:
+    def history(scale: str = "ALL", today: str | None = None) -> dict[str, Any]:
         selected_scale = time_scale_or_bad_request(scale)
         stored = store.all_entries()  # newest first
-        shown = entries_in_window(stored, selected_scale, today=clock.now_utc().date())
+        day_frame = day_frame_or_bad_request(today, clock.now_utc().date())
+        shown = entries_in_window(stored, selected_scale, today=day_frame)
         return {
             "entries": [
                 {"date": entry.day.isoformat(), "weight_kg": entry.weight_kg} for entry in shown
@@ -338,14 +375,17 @@ def build_router(
         }
 
     @router.get("/trend")
-    def trend(scale: str = "ALL") -> dict[str, Any]:
+    def trend(scale: str = "ALL", today: str | None = None) -> dict[str, Any]:
         """Smoothed trend line for the selected scale (full recompute per read, ADR-004).
 
-        Every open is a KPI-3 engagement signal: one trend.view.opened event goes
-        onto the append-only trail before the line is returned."""
+        The window is framed by the phone's claimed day (?today=, validated and
+        skew-bounded); event timestamps stay UTC by design. Every open is a KPI-3
+        engagement signal: one trend.view.opened event goes onto the append-only
+        trail before the line is returned."""
         selected_scale = time_scale_or_bad_request(scale)
         opened_at = clock.now_utc()
-        points = trend_series_in(store.all_entries(), selected_scale, opened_at.date())
+        day_frame = day_frame_or_bad_request(today, opened_at.date())
+        points = trend_series_in(store.all_entries(), selected_scale, day_frame)
         store.append_event(
             ts=opened_at.isoformat(),
             name=TREND_VIEW_OPENED_EVENT,

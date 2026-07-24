@@ -37,6 +37,17 @@
     // Trend lens: the server smooths over the FULL record and windows the OUTPUT
     // (ADR-004); the line covers every day on the grid, so no gaps exist to draw.
     const DAY_MS = 86400000;
+
+    // Device-local day (A5, extended to reads by fix-device-day-reads): the
+    // phone frames "today" for the window; the server validates and bounds
+    // the claim, so the 1W week never loses its oldest day after the UTC
+    // rollover of an ordinary evening.
+    function deviceLocalDay() {
+      const now = new Date();
+      const pad = (part) => String(part).padStart(2, "0");
+      return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    }
+
     const page = document.getElementById("graph-page");
     const chartHost = document.getElementById("chart");
     const emptyInvite = document.getElementById("empty-invite");
@@ -99,7 +110,9 @@
     }
 
     async function showRaw(scale) {
-      const history = await (await fetch(`/entries?scale=${encodeURIComponent(scale)}`)).json();
+      const history = await (
+        await fetch(`/entries?scale=${encodeURIComponent(scale)}&today=${deviceLocalDay()}`)
+      ).json();
       emptyInvite.hidden = !history.invite_first_log;
       if (history.entries.length === 0) return clearChart();
       renderChart(dailyGridSeries(history.entries), (palette) => ({
@@ -111,7 +124,9 @@
     }
 
     async function showTrend(scale) {
-      const trend = await (await fetch(`/trend?scale=${encodeURIComponent(scale)}`)).json();
+      const trend = await (
+        await fetch(`/trend?scale=${encodeURIComponent(scale)}&today=${deviceLocalDay()}`)
+      ).json();
       emptyInvite.hidden = trend.points.length > 0;
       if (trend.points.length === 0) return clearChart();
       renderChart(trendGridSeries(trend.points), (palette) => ({

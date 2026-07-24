@@ -33,4 +33,4 @@ Feature `calm-visual-theme` restyles all three screens (entry, graph, door) calm
 - G-4 contrast compliance is arithmetic we own: the token table in `docs/feature/calm-visual-theme/feature-delta.md` (§ Design Tokens) lists every pair with computed ratios; tightest pair is light `--chart-grid` at ~3.3:1 (≥ 3:1 non-text). DISTILL's checker is authoritative; any flagged pair shifts one hex step.
 - No new dependencies, licenses, or vendor files to track. No new ports, adapters, containers, or C4 changes; ADR-005 (functional core) untouched — no domain code in scope.
 - Degradations: stylesheet load failure → unstyled but fully functional app (US-008 AC); missing `matchMedia` support → chart colors fixed at load-time scheme while page CSS still flips (accepted).
-- Entry screen keeps zero new JS; the only JS delta is the graph-page scheme wiring.
+- Entry screen keeps zero new script blocks / external scripts (amended from "zero new JS", user-approved 2026-07-24, fix-device-day-reads: the day-frame fix extends the one existing inline script); the only JS delta of this feature is the graph-page scheme wiring.
