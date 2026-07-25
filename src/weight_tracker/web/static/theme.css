@@ -116,9 +116,23 @@ main > * + * {
   font-size: 1.125rem;
 }
 
-#yesterday-reference {
+/* The date row (US-013, D-25): the box itself is already the global
+   `input { min-height: 44px; width: 100% }`, so the row is born comfortable and
+   value-independent -- all it still needs is the gap the form has no rule for,
+   which would otherwise leave "Weight (kg)" flush against the picker. */
+#entry-date {
+  margin-block-end: var(--space-3);
+}
+
+/* The one hint line (US-014, D-24/D-25), which absorbed the yesterday anchor.
+   It now changes DURING the session -- anchor, "Editing ...", "No entry ... yet"
+   -- and ships empty, so its height is reserved rather than earned: an empty
+   line still holds one line of the body's own leading and the entry form never
+   jumps under the thumb. Same technique as #home-graph #chart below. */
+#entry-hint {
   color: var(--text-muted);
   margin-block: var(--space-1) 0;
+  min-height: 1.5em;
 }
 
 #save-feedback {
