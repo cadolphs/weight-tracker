@@ -49,7 +49,16 @@ def build_app(
                                          field, yesterday reference, trend glance line from
                                          the same fetched entries; render with glance data
                                          emits trend_glance_shown, D-13/D-14)
-        POST /entries                    WeightLogging.record_or_replace(date, kg, entry_ms)
+        POST /entries                    WeightLogging.record_or_replace(date, kg, entry_ms,
+                                         today?) -- `today` is the phone's own day: additive,
+                                         optional, backward-compatible; absent or garbled falls
+                                         back to the server's UTC day and NEVER 400s (a telemetry
+                                         concern may not cost an entry). A save whose date is not
+                                         the claimed day is a REPAIR, not a morning (ADR-011):
+                                         its entry_ms is withheld as NULL -- zero KPI-1 speed
+                                         samples via the shipped null-skip -- and its entry.saved
+                                         payload carries "backdated": true for the KPI-8 count.
+                                         Response shape unchanged.
                                          (saved responses carry "glance" display text for the
                                          in-place refresh; delivery emits trend_glance_shown)
         GET  /entries?scale=...          WeightHistory.entries_in(window)

@@ -20,7 +20,7 @@ Feature: The record repairs itself where the habit lives
     And today is Friday 24 July 2026
     And Clemens has unlocked the tracker with his passphrase
 
-  @pending @driving_port @US-013 @contract-shape:bounded-change
+  @driving_port @US-013 @contract-shape:bounded-change
   Scenario: A forgotten day is backfilled from the entry screen
     Given his record holds an entry for every day from 20 July 2026 to 23 July 2026
     And his record has no entry for 19 July 2026
@@ -54,7 +54,7 @@ Feature: The record repairs itself where the habit lives
     And nothing is stored
     And neither the morning-speed record nor the repair count moves
 
-  @pending @driving_port @property @kpi @real-io @adapter-integration @US-013 @contract-shape:bounded-change
+  @driving_port @property @kpi @real-io @adapter-integration @US-013 @contract-shape:bounded-change
   Scenario: A slow repair never slows the morning record
     Given he has logged timed entries every morning for the last week
     And his record has no entry for 10 July 2026
@@ -62,14 +62,14 @@ Feature: The record repairs itself where the habit lives
     Then the week's morning-speed record still holds the same mornings
     And the repair is counted on the stats page
 
-  @pending @driving_port @kpi @US-013 @contract-shape:bounded-change
+  @driving_port @kpi @US-013 @contract-shape:bounded-change
   Scenario: A morning still counts as a morning
     Given he has logged timed entries every morning for the last week
     When he takes 4200 ms to log "82.2" for today
     Then the week's morning-speed record gains that morning
     And no repair is counted for it
 
-  @pending @driving_port @error @US-013 @contract-shape:bounded-change
+  @driving_port @error @US-013 @contract-shape:bounded-change
   Scenario Outline: A phone that will not say which day it is on is still served
     When a save of "82.6" for 19 July 2026 arrives <claim>
     Then he sees the confirmation "Saved: 82.6 kg — Sun 19 Jul"
@@ -97,7 +97,7 @@ Feature: The record repairs itself where the habit lives
     Then 21 July 2026 offers its stored 82.4 kg back for correction
     And 19 July 2026 offers nothing to correct
 
-  @pending @driving_port @US-014 @contract-shape:bounded-change
+  @driving_port @US-014 @contract-shape:bounded-change
   Scenario: A mistyped past day is corrected in place
     Given he logged 88.4 kg on 21 July 2026
     And his record holds an entry for every day from 22 July 2026 to 23 July 2026
@@ -107,7 +107,7 @@ Feature: The record repairs itself where the habit lives
     And the refreshed picture the save hands back holds "Tue 21 Jul — 82.4 kg"
     And the trend recomputes over the repaired record including 21 July 2026
 
-  @pending @driving_port @error @kpi @US-014 @contract-shape:bounded-change
+  @driving_port @error @kpi @US-014 @contract-shape:bounded-change
   Scenario: Correcting a timed morning leaves the week's mornings intact
     Given he has logged timed entries every morning for the last week
     When he corrects 22 July 2026 to 82.1 kg from the date row

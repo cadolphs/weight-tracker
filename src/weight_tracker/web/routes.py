@@ -10,7 +10,8 @@ output, pure read per ADR-009), graph page (trend default lens, Trend/Raw
 toggle sharing the selected window, one trend.study.opened per open),
 entry screen (instant typing, yesterday anchor, ambient home.graph.shown
 delivery), PWA manifest + minimal service worker (app-shell cache only,
-D-11), telemetry counts with the KPI-1 speed report.
+D-11), telemetry counts with the KPI-1 speed report and the KPI-8 repair
+count (write-time backdated classification, ADR-011).
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ from weight_tracker.core.types import (
 )
 from weight_tracker.core.validation import (
     bounded_day_frame,
+    is_backdated,
     validate_entry_date,
     validate_weight,
 )
@@ -164,6 +166,26 @@ def day_frame_or_bad_request(claimed_today: str | None, server_utc_today: date) 
             detail=f"Unrecognisable day {claimed_today!r}. Expected an ISO date (YYYY-MM-DD).",
         )
     return framed
+
+
+def device_day_frame(claimed_today: object, server_utc_today: date) -> date:
+    """Resolve the day a SAVE is judged against (ADR-011): the phone's own day.
+
+    Saves are strict where reads are forgiving -- and here that asymmetry runs
+    the other way round. `day_frame_or_bad_request` turns a garbled `?today=`
+    away with 400 because a read window is the answer being asked for; a save's
+    claim is only telemetry, and a telemetry concern must never cost an entry.
+    So an absent claim (curl, every shipped API client) and a garbled one alike
+    fall back to the server's UTC day, and this function never raises. A
+    parseable claim is believed only as far as a real timezone could carry it --
+    the core's `bounded_day_frame` clamps it -- so the one newly trusted input,
+    a lying device clock, is contained by construction while the authoritative
+    no-future rule still stands in front of it.
+    """
+    if not isinstance(claimed_today, str):
+        return server_utc_today
+    framed = bounded_day_frame(claimed_today, server_utc_today)
+    return server_utc_today if framed is None else framed
 
 
 def _rejected_save(rejected: Rejected, typed_value: str) -> dict[str, Any]:
@@ -443,23 +465,45 @@ def build_router(
 
     @router.post("/entries")
     async def save_entry(request: Request) -> dict[str, Any]:
+        """Save one day's weight, and judge whether it was a morning or a repair.
+
+        The picked day and the phone's own day arrive independently (`date` and
+        the additive, optional `today`), so "a repair is never counted as a
+        morning" is falsifiable at this boundary rather than trusted as a client
+        convention (ADR-011). Order is load-bearing: the weight and the date are
+        validated FIRST, so only accepted dates are ever classified and the
+        server's no-future rule stays authoritative.
+        """
         submitted = await request.json()
         typed_weight = str(submitted.get("weight", ""))
         weight_kg = validate_weight(typed_weight)
         if isinstance(weight_kg, Rejected):
             return _rejected_save(weight_kg, typed_value=typed_weight)
-        day = validate_entry_date(
-            str(submitted.get("date", "")), server_utc_today=clock.now_utc().date()
-        )
+        server_utc_today = clock.now_utc().date()
+        day = validate_entry_date(str(submitted.get("date", "")), server_utc_today=server_utc_today)
         if isinstance(day, Rejected):
             return _rejected_save(day, typed_value=typed_weight)
+        backdated = is_backdated(day, device_day_frame(submitted.get("today"), server_utc_today))
         logged_at = clock.now_utc().isoformat()
-        entry = Entry(day=day, weight_kg=weight_kg, entry_ms=submitted.get("entry_ms"))
+        entry = Entry(
+            day=day,
+            weight_kg=weight_kg,
+            # KPI-1 purity is STRUCTURAL, not a query rule: a repair carries no
+            # timing at all, in the row or on the trail, so the shipped null-skip
+            # in `entry_ms_samples_since` yields it zero speed samples. "A slow
+            # backfill dragged the weekly median" cannot be represented.
+            entry_ms=None if backdated else submitted.get("entry_ms"),
+        )
         store.upsert(entry, logged_at=logged_at)
         store.append_event(
             ts=logged_at,
             name=ENTRY_SAVED_EVENT,
-            payload=json.dumps({"date": day.isoformat(), "entry_ms": entry.entry_ms}),
+            # ONE event per save (D-23): the verdict travels as a payload word, never
+            # a second event name -- the repair counter reads it where the timing is
+            # withheld, so the two KPIs can never disagree about the same save.
+            payload=json.dumps(
+                {"date": day.isoformat(), "entry_ms": entry.entry_ms, "backdated": backdated}
+            ),
         )
         saved = Saved(day=day, weight_kg=weight_kg)
         refreshed = store.all_entries()  # newest first, the just-saved day on top
