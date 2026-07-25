@@ -58,7 +58,16 @@
       <input type="date" id="entry-date"{% if earliest_pickable_day %} min="{{ earliest_pickable_day.isoformat() }}"{% endif %}>
       <label for="weight">Weight (kg)</label>
       <input id="weight" name="weight" inputmode="decimal" autocomplete="off" autofocus>
-      <p id="yesterday-reference" hidden></p>
+      <!-- The ONE hint line (US-014, D-24/A21): a single node serves all three
+           things the entry screen ever has to say beside the field -- yesterday's
+           anchor on today, "Editing {day} — was {v} kg" when a stored day is
+           picked, and "No entry for {day} yet" when the picked day is a gap.
+           "Never two hints at once" is STRUCTURAL rather than conventional:
+           there is one node, and it is never removed. It ships empty and stays in
+           the flow when it has nothing to say, so its height is reserved and the
+           form never jumps under the thumb mid-session. Its text comes from the
+           pure hintFor() below; this is the only place the hint is written. -->
+      <p id="entry-hint"></p>
       <button type="submit">Save</button>
       <p id="save-feedback" role="alert" hidden></p>
     </form>
@@ -90,6 +99,75 @@
     function deviceLocalDay() {
       return isoLocalDay(new Date());
     }
+    // The calendar day before a given one, by calendar arithmetic rather than by
+    // subtracting 86,400,000 ms -- month ends and DST shifts stay honest. PURE:
+    // an ISO day in, an ISO day out, no reading of the clock.
+    function dayBefore(isoDay) {
+      const [year, month, day] = isoDay.split("-").map(Number);
+      return isoLocalDay(new Date(year, month - 1, day - 1));
+    }
+
+    // The one row grammar, spoken client-side for the in-place repaint (A18):
+    // 'Fri 24 Jul — 82.2 kg' -- weekday, day without a leading zero, month. Its
+    // day half is dayLabel(), shared with the hint line below (D-24) so the
+    // screen can never fork into a second calendar wording; the server speaks
+    // the same one in entry_row_text and in every save confirmation.
+    const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    function dayLabel(isoDay) {
+      const [year, month, day] = isoDay.split("-").map(Number);
+      const weekday = WEEKDAYS[new Date(year, month - 1, day).getDay()];
+      return `${weekday} ${day} ${MONTHS[month - 1]}`;
+    }
+    function entryRowText(isoDate, weightKg) {
+      return `${dayLabel(isoDate)} — ${weightKg.toFixed(1)} kg`;
+    }
+
+    // The WHOLE record as {iso_day: kg} (ADR-010): ONE map answers both the
+    // yesterday anchor and the edit prefill, so the two can never disagree.
+    // A day with no entry is simply absent -- a gap stays a gap.
+    const recordWeights = {{ record_weights | tojson }};
+
+    // What the phone currently knows the record to hold. It starts as the
+    // server's hand-back above and is REPLACED (never mutated) by a merge of
+    // each save's own answer, so the anchor and the prefill stay fresh without a
+    // reload. Degrade-to-absent: a page served without a map leaves this empty
+    // and the hint simply says less -- entry and save are untouched either way.
+    let knownWeights = recordWeights || {};
+
+    // The three things the screen ever has to say beside the field, as ONE pure
+    // function (D-24/A21): the day picked, the phone's own day, and what the
+    // record holds go in; a line -- or null for "nothing to say" -- comes out.
+    // No DOM read, no clock read, no global lookup: everything it needs is an
+    // argument, which is what keeps the three states mutually exclusive by
+    // construction instead of by convention (ADR-005 in the client).
+    function hintFor(selectedDay, deviceToday, weightsByDay) {
+      if (!selectedDay || selectedDay === deviceToday) {
+        const yesterdayKg = weightsByDay[dayBefore(deviceToday)];
+        // First-morning honesty: with nothing behind today, the line says nothing.
+        return yesterdayKg === undefined ? null : `yesterday: ${yesterdayKg.toFixed(1)} kg`;
+      }
+      const storedKg = weightsByDay[selectedDay];
+      if (storedKg === undefined) {
+        return `No entry for ${dayLabel(selectedDay)} yet`;
+      }
+      return `Editing ${dayLabel(selectedDay)} — was ${storedKg.toFixed(1)} kg`;
+    }
+
+    const entryForm = document.querySelector("form");
+    const dateInput = document.getElementById("entry-date");
+    const weightInput = document.getElementById("weight");
+    const entryHint = document.getElementById("entry-hint");
+    const feedback = document.getElementById("save-feedback");
+
+    // THE apply site for the hint (FC/IS in the client): the only place the one
+    // node is written. It is never removed -- an empty line still holds its
+    // height, so nothing reflows under the thumb when the picked day changes.
+    function paintHint() {
+      const line = hintFor(dateInput.value, deviceLocalDay(), knownWeights);
+      entryHint.textContent = line === null ? "" : line;
+    }
 
     // The date row's own two ends, framed by the DEVICE (A5/D-25): where the
     // picker opens (`value` = today) and how far forward it may reach (`max` =
@@ -101,39 +179,16 @@
     // setting .value / .max never moves focus, so the morning keypad stays on
     // the weight field. ONE apply site, right here (FC/IS in the client).
     (function frameDateRowOnDeviceDay() {
-      const dateRow = document.getElementById("entry-date");
-      const today = deviceLocalDay();
-      dateRow.value = today;
-      dateRow.max = today;
+      dateInput.value = deviceLocalDay();
+      dateInput.max = deviceLocalDay();
     })();
 
-    // The WHOLE record as {iso_day: kg} (ADR-010): ONE map answers both the
-    // yesterday anchor and the edit prefill, so the two can never disagree.
-    // A day with no entry is simply absent -- a gap stays a gap.
-    const recordWeights = {{ record_weights | tojson }};
-
-    // Client-authoritative yesterday anchor (A5 extended to reads,
-    // fix-device-day-reads): the server hands the record; the PHONE resolves
-    // which day is "yesterday" in its own calendar -- after a UTC rollover the
-    // evening at home is still today, never tomorrow.
-    (function renderYesterdayAnchor() {
-      const anchor = document.getElementById("yesterday-reference");
-      const deviceYesterday = new Date();
-      deviceYesterday.setDate(deviceYesterday.getDate() - 1);
-      const loggedKg = recordWeights[isoLocalDay(deviceYesterday)];
-      if (loggedKg === undefined) {
-        anchor.remove();  // present only when a value exists (first-morning honesty)
-        return;
-      }
-      anchor.textContent = `yesterday: ${loggedKg.toFixed(1)} kg`;
-      anchor.hidden = false;
-    })();
-
-    // Inline save flow: confirmation or corrective message beside the field.
-    // On rejection the typed value stays in the input for correction.
-    const entryForm = document.querySelector("form");
-    const weightInput = document.getElementById("weight");
-    const feedback = document.getElementById("save-feedback");
+    // Picking a day re-derives the one line: yesterday's anchor on today, the
+    // stored value offered back on a day the record holds, the gap admitted
+    // otherwise. Client-authoritative throughout (A5 extended to reads): the
+    // server hands over the record, the PHONE decides which day is which.
+    dateInput.addEventListener("change", paintHint);
+    paintHint();
 
     // In-place glance refresh (D-13): the saved response carries the glance
     // recomputed with today's entry -- no reload, no extra fetch. A degraded
@@ -150,17 +205,6 @@
         entryForm.parentNode.insertBefore(glanceLine, entryForm);
       }
       glanceLine.textContent = glanceText;
-    }
-
-    // The one row grammar, spoken client-side for the in-place repaint (A18):
-    // 'Fri 24 Jul — 82.2 kg' -- weekday, day without a leading zero, month.
-    const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    function entryRowText(isoDate, weightKg) {
-      const [year, month, day] = isoDate.split("-").map(Number);
-      const weekday = WEEKDAYS[new Date(year, month - 1, day).getDay()];
-      return `${weekday} ${day} ${MONTHS[month - 1]} — ${weightKg.toFixed(1)} kg`;
     }
 
     // In-place recent-list repaint (D-19): rebuilt from the save's own hand-back
@@ -185,13 +229,37 @@
       }));
     }
 
+    // What the phone now knows, after a save answered (ADR-010). PURE: the map
+    // it was handed and the save's own answer go in, a NEW map comes out --
+    // nothing is mutated in place. The saved day and the refreshed tail of the
+    // record are both already on the wire, so keeping the anchor and the prefill
+    // fresh costs no reload and no second fetch.
+    function mergedRecord(weightsByDay, outcome) {
+      const answered = {};
+      for (const entry of outcome.recent || []) {
+        answered[entry.date] = entry.weight_kg;
+      }
+      if (outcome.date != null && outcome.weight_kg != null) {
+        answered[outcome.date] = outcome.weight_kg;
+      }
+      return { ...weightsByDay, ...answered };
+    }
+
+    // Inline save flow: confirmation or corrective message beside the field.
+    // On rejection the typed value stays in the input for correction.
     entryForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const response = await fetch("/entries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          date: deviceLocalDay(),
+          // The day being SAVED (the picked one, today unless it was moved) and,
+          // separately, the day the phone believes it IS. Sending both is what
+          // lets the server decide at write time whether this was a morning or a
+          // repair (ADR-011) -- a rule that rests on what arrives on the wire,
+          // never on a client convention about what it omits.
+          date: dateInput.value || deviceLocalDay(),
+          today: deviceLocalDay(),
           weight: weightInput.value,
           // KPI-1: client-measured duration from screen-interactive to save tap.
           entry_ms: Math.round(performance.now()),
@@ -201,12 +269,18 @@
       feedback.hidden = false;
       if (outcome.outcome === "saved") {
         feedback.textContent = outcome.confirmation;
+        knownWeights = mergedRecord(knownWeights, outcome);
         refreshGlance(outcome.glance);
         refreshRecentList(outcome.recent);
         // Post-save repaint (A15): the shared engine refetches the graph at its
         // CURRENT lens/scale -- listening in graph.js, silent when no mount exists.
         document.dispatchEvent(new CustomEvent("entry-saved"));
         weightInput.value = "";
+        // Back to today (D8/A22): repairing a past day is a detour, not a new
+        // habit. Backfill yesterday, then log this morning -- without this reset
+        // the second, habit-typed entry would silently overwrite the first.
+        dateInput.value = deviceLocalDay();
+        paintHint();
       } else {
         feedback.textContent = outcome.message;
         weightInput.value = outcome.echo;

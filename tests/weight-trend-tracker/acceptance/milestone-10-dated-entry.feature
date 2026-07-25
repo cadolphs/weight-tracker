@@ -115,7 +115,7 @@ Feature: The record repairs itself where the habit lives
     And the week's morning-speed record still holds the same mornings
     And the repair is counted on the stats page
 
-  @pending @driving_port @US-014 @contract-shape:pure-function
+  @driving_port @US-014 @contract-shape:pure-function
   Scenario: One hint line serves the anchor and the repair alike
     Given yesterday he logged 82.4 kg
     When he opens the entry screen
