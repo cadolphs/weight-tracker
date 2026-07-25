@@ -228,17 +228,25 @@ def glance_display_text(summary: GlanceSummary) -> str:
     return f"{value_text} · {rate_glyph(quantized_rate)}{abs(quantized_rate):.2f} kg/week"
 
 
-#: Recent entries embedded for the phone-side yesterday anchor: enough to cover
-#: the device-local yesterday under any legitimate skew (server day +/-
-#: MAX_DEVICE_SKEW_DAYS) plus today's own entry -- never the whole record.
-RECENT_ANCHOR_ENTRIES = 4
+def record_weights_map(entries: Sequence[Entry]) -> dict[str, float]:
+    """The WHOLE record as {iso_day: kg} for the entry screen's inline script --
+    ONE map answering both the yesterday anchor and the edit prefill (ADR-010),
+    so the two can never disagree about a day.
 
+    Why the phone resolves its own day against it: the client picks the
+    DEVICE-local yesterday out of this map (A5 extended to reads) -- the server
+    never guesses the phone's calendar frame.
 
-def recent_weights_map(entries: Sequence[Entry]) -> dict[str, float]:
-    """The latest few logged days as {iso_day: kg} for the entry screen's inline
-    script, which resolves the DEVICE-local yesterday against it (A5 extended
-    to reads) -- the server never guesses the phone's calendar frame."""
-    return {entry.day.isoformat(): entry.weight_kg for entry in entries[:RECENT_ANCHOR_ENTRIES]}
+    Why the whole record and not a window: a March 2026 entry must still prefill
+    in 2028 (A24), so any bound fails by construction. It costs nothing to serve
+    -- a pure projection of the single all_entries() read GET / already performs,
+    beside recent_entry_rows and complete_record_rows (zero added I/O, zero
+    port changes). ADR-010 quantifies the byte cost (~5.6 KB/yr) and pins the
+    ~2,000-entry reversal trigger.
+
+    A day with no entry is simply ABSENT -- never a sentinel, never a zero -- so
+    the client offers a gap as a gap and can never overwrite one blindly."""
+    return {entry.day.isoformat(): entry.weight_kg for entry in entries}
 
 
 #: The recent list's depth (US-011, A18): the last 7 ENTRIES, never days --
@@ -431,8 +439,10 @@ def build_router(
         D-13); a render with glance data is one counted delivery (D-14).
 
         The yesterday anchor is framed by the PHONE, not the server clock
-        (fix-device-day-reads): the recent-days map rides inside the existing
-        inline script, and the client resolves its own device-local yesterday."""
+        (fix-device-day-reads): the record's day-to-weight map rides inside the
+        existing inline script, and the client resolves its own device-local
+        yesterday against it. That same one map answers ANY stored day the
+        picker lands on (ADR-010) -- one read, one map, no disagreement."""
         entries = store.all_entries()
         if entries:
             # Ambient graph presence (ADR-009, KPI-7): a data-available-at-render
@@ -446,7 +456,7 @@ def build_router(
             request=request,
             name="index.html",
             context={
-                "recent_weights": recent_weights_map(entries),
+                "record_weights": record_weights_map(entries),
                 "recent_entries": recent_entry_rows(entries),
                 "glance_text": deliver_glance(entries),
             },

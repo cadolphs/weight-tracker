@@ -14,7 +14,7 @@
     {% if glance_text is not none %}
     <p id="trend-glance">{{ glance_text }}</p>
     {% endif %}
-    {% if recent_weights %}
+    {% if record_weights %}
     <!-- Ambient morning picture (US-010, ADR-008): the whole record's trend curve
          ABOVE the entry form, driven by the same shared engine as the History page.
          The mount's data-view/data-scale carry the page state exactly like
@@ -74,16 +74,20 @@
       return isoLocalDay(new Date());
     }
 
+    // The WHOLE record as {iso_day: kg} (ADR-010): ONE map answers both the
+    // yesterday anchor and the edit prefill, so the two can never disagree.
+    // A day with no entry is simply absent -- a gap stays a gap.
+    const recordWeights = {{ record_weights | tojson }};
+
     // Client-authoritative yesterday anchor (A5 extended to reads,
-    // fix-device-day-reads): the server hands the recent days; the PHONE
-    // resolves which one is "yesterday" in its own calendar -- after a UTC
-    // rollover the evening at home is still today, never tomorrow.
-    const recentWeights = {{ recent_weights | tojson }};
+    // fix-device-day-reads): the server hands the record; the PHONE resolves
+    // which day is "yesterday" in its own calendar -- after a UTC rollover the
+    // evening at home is still today, never tomorrow.
     (function renderYesterdayAnchor() {
       const anchor = document.getElementById("yesterday-reference");
       const deviceYesterday = new Date();
       deviceYesterday.setDate(deviceYesterday.getDate() - 1);
-      const loggedKg = recentWeights[isoLocalDay(deviceYesterday)];
+      const loggedKg = recordWeights[isoLocalDay(deviceYesterday)];
       if (loggedKg === undefined) {
         anchor.remove();  // present only when a value exists (first-morning honesty)
         return;

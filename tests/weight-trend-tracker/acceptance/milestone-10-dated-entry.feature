@@ -80,7 +80,7 @@ Feature: The record repairs itself where the habit lives
       | with no word about the phone's day      |
       | with a garbled word for the phone's day |
 
-  @pending @driving_port @US-014 @contract-shape:pure-function
+  @driving_port @US-014 @contract-shape:pure-function
   Scenario: Any day of the record answers the picker
     Given he logged 84.9 kg on 3 March 2026
     And his record holds an entry for every day from 17 July 2026 to 23 July 2026
@@ -88,7 +88,7 @@ Feature: The record repairs itself where the habit lives
     Then 3 March 2026 offers its stored 84.9 kg back for correction
     And every day of the record offers its stored weight back
 
-  @pending @driving_port @error @US-014 @contract-shape:pure-function
+  @driving_port @error @US-014 @contract-shape:pure-function
   Scenario: A gap is offered as a gap, never as a value
     Given he logged 82.5 kg on 20 July 2026
     And he logged 82.4 kg on 21 July 2026
