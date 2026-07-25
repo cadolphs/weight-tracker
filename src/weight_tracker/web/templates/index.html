@@ -39,6 +39,23 @@
     </section>
     {% endif %}
     <form method="post" action="/entries">
+      <!-- The date row (US-013, D6/D-25): the phone's OWN native picker, resting
+           inside the form ABOVE the weight field, so a forgotten Sunday or a
+           fat-fingered Tuesday is repaired where the habit already lives.
+           It deliberately claims NO focus of its own -- the morning keypad still
+           comes up on the weight field below and the default flow costs exactly
+           the taps it always did (KPI-1 guardrail). `value` and `max` are set by
+           the inline script
+           below, because only the phone knows its own calendar day (A5); `min` is
+           the server's, the record's first day minus a year (OQ-11), and is
+           absent entirely on an empty record -- no sentinel, no empty attribute.
+           All three are UX assist only: validate_entry_date remains the sole
+           authority on what may be saved, and a forged future date is still
+           rejected exactly as before. The box is value-independent and inherits
+           the shipped `input { min-height: 44px; width: 100% }`, so the form
+           never jumps under the thumb. -->
+      <label for="entry-date">Date</label>
+      <input type="date" id="entry-date"{% if earliest_pickable_day %} min="{{ earliest_pickable_day.isoformat() }}"{% endif %}>
       <label for="weight">Weight (kg)</label>
       <input id="weight" name="weight" inputmode="decimal" autocomplete="off" autofocus>
       <p id="yesterday-reference" hidden></p>
@@ -73,6 +90,22 @@
     function deviceLocalDay() {
       return isoLocalDay(new Date());
     }
+
+    // The date row's own two ends, framed by the DEVICE (A5/D-25): where the
+    // picker opens (`value` = today) and how far forward it may reach (`max` =
+    // today, so the future stays closed at the picker as well as at the save).
+    // The server cannot know the phone's calendar day, which is why these two
+    // are set here and only `min` arrives rendered. Reading the same one
+    // deviceLocalDay() the save already speaks keeps the anchor, the picker and
+    // the submitted day on a single calendar rule. Looking is not touching:
+    // setting .value / .max never moves focus, so the morning keypad stays on
+    // the weight field. ONE apply site, right here (FC/IS in the client).
+    (function frameDateRowOnDeviceDay() {
+      const dateRow = document.getElementById("entry-date");
+      const today = deviceLocalDay();
+      dateRow.value = today;
+      dateRow.max = today;
+    })();
 
     // The WHOLE record as {iso_day: kg} (ADR-010): ONE map answers both the
     // yesterday anchor and the edit prefill, so the two can never disagree.

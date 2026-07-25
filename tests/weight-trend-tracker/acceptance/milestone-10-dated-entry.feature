@@ -30,7 +30,7 @@ Feature: The record repairs itself where the habit lives
     And the refreshed picture the save hands back holds "Sun 19 Jul — 82.6 kg"
     And the trend recomputes over the repaired record including 19 July 2026
 
-  @pending @driving_port @property @kpi @US-013 @contract-shape:pure-function
+  @driving_port @property @kpi @US-013 @contract-shape:pure-function
   Scenario: The morning flow never pays for the picker
     Given his record holds an entry for every day from 17 July 2026 to 23 July 2026
     When he opens the entry screen, watch in hand
@@ -39,7 +39,7 @@ Feature: The record repairs itself where the habit lives
     And the entry screen is ready for immediate typing
     And nothing about the date row steals the morning focus
 
-  @pending @driving_port @US-013 @contract-shape:pure-function
+  @driving_port @US-013 @contract-shape:pure-function
   Scenario: The picker cannot wander off before the record began
     Given he logged 84.9 kg on 3 March 2026
     And he logged 82.4 kg on 23 July 2026
@@ -123,7 +123,7 @@ Feature: The record repairs itself where the habit lives
     And yesterday's 82.4 kg is shown beside the input
     And the hint names its day in the record's own grammar
 
-  @pending @driving_port @error @US-013 @US-014 @contract-shape:pure-function
+  @driving_port @error @US-013 @US-014 @contract-shape:pure-function
   Scenario: An empty record still opens straight into typing
     When he opens the entry screen
     Then the date row rests above the weight field

@@ -249,6 +249,42 @@ def record_weights_map(entries: Sequence[Entry]) -> dict[str, float]:
     return {entry.day.isoformat(): entry.weight_kg for entry in entries}
 
 
+def _one_calendar_year_earlier(day: date) -> date:
+    """The same day of the same month, a year back. 29 February has no counterpart
+    in a common year and settles on the 28th rather than drifting into March --
+    a year of slack either way, never a day of silent calendar arithmetic."""
+    try:
+        return day.replace(year=day.year - 1)
+    except ValueError:
+        return day.replace(year=day.year - 1, day=28)
+
+
+def date_row_earliest_day(entries: Sequence[Entry]) -> date | None:
+    """How far back the date row may reach: the record's FIRST day minus one
+    calendar year -- None while there is no record to reach back into (D-25).
+
+    Why a bound exists at all (OQ-11), because it reads like a business rule and
+    is not one: the trend grid spans first->last entry day, so a single mistyped
+    year (2026 -> 2016) would permanently stretch every recompute to ~3,650 grid
+    points, and entry deletion is out of scope -- recovery would be manual SQL.
+    This is a cheap guard against that, UX assist only: `validate_entry_date`
+    remains the sole authority on what may be saved, and widening the bound later
+    is one attribute.
+
+    Why the year of slack: a bound sitting exactly on the record's first day
+    would refuse the very repair of a mistyped FIRST morning. A year is
+    comfortably more room than the habit needs and far less than a typo costs.
+
+    Why the tail: `all_entries()` serves newest-first, so the record BEGINS at
+    `entries[-1]`. A pure projection of the single read GET / already performs,
+    beside `record_weights_map` and `recent_entry_rows` -- zero added I/O, zero
+    port changes. An empty record yields no bound at all: no sentinel day, no
+    empty-string attribute, simply nothing rendered."""
+    if not entries:
+        return None
+    return _one_calendar_year_earlier(entries[-1].day)
+
+
 #: The recent list's depth (US-011, A18): the last 7 ENTRIES, never days --
 #: missing days are simply absent because entries, not calendar days, are sliced.
 RECENT_LIST_ENTRIES = 7
@@ -442,7 +478,14 @@ def build_router(
         (fix-device-day-reads): the record's day-to-weight map rides inside the
         existing inline script, and the client resolves its own device-local
         yesterday against it. That same one map answers ANY stored day the
-        picker lands on (ADR-010) -- one read, one map, no disagreement."""
+        picker lands on (ADR-010) -- one read, one map, no disagreement.
+
+        The date row above the field is framed from both ends and by both
+        parties (D-25): the phone sets where it opens and how far forward it
+        reaches, because only it knows its own calendar day (A5); the server
+        supplies how far BACK it reaches, from the same read -- the record's
+        first day minus a year. All three are UX assist; the save path's
+        no-future rule is untouched and still authoritative."""
         entries = store.all_entries()
         if entries:
             # Ambient graph presence (ADR-009, KPI-7): a data-available-at-render
@@ -457,6 +500,7 @@ def build_router(
             name="index.html",
             context={
                 "record_weights": record_weights_map(entries),
+                "earliest_pickable_day": date_row_earliest_day(entries),
                 "recent_entries": recent_entry_rows(entries),
                 "glance_text": deliver_glance(entries),
             },
