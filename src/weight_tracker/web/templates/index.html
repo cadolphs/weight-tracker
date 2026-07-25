@@ -175,12 +175,14 @@
     // The server cannot know the phone's calendar day, which is why these two
     // are set here and only `min` arrives rendered. Reading the same one
     // deviceLocalDay() the save already speaks keeps the anchor, the picker and
-    // the submitted day on a single calendar rule. Looking is not touching:
-    // setting .value / .max never moves focus, so the morning keypad stays on
-    // the weight field. ONE apply site, right here (FC/IS in the client).
+    // the submitted day on a single calendar rule -- read ONCE here, so the day
+    // the picker opens on and the day it stops at cannot straddle a midnight.
+    // Looking is not touching: setting .value / .max never moves focus, so the
+    // morning keypad stays on the weight field. ONE apply site (FC/IS in the client).
     (function frameDateRowOnDeviceDay() {
-      dateInput.value = deviceLocalDay();
-      dateInput.max = deviceLocalDay();
+      const today = deviceLocalDay();
+      dateInput.value = today;
+      dateInput.max = today;
     })();
 
     // Picking a day re-derives the one line: yesterday's anchor on today, the

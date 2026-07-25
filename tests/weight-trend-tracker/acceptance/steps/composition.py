@@ -633,15 +633,13 @@ class GraphService(_Service):
         assert 'data-view="trend"' in ctx.response.text, "the trend must be the default lens"
 
 
-#: Post-fix render source (fix-device-day-reads): the recent-days map the entry
-#: screen embeds inside its one inline script for the PHONE-side yesterday render.
-RECENT_WEIGHTS_MAP = re.compile(r"const recentWeights = (\{[^;]*\});")
-#: Widened render source (entry-date-picker, ADR-010/D-21): the WHOLE record as
-#: {iso_day: kg}. CONSCIOUS RENEGOTIATION of the map-const name (R-1a, never
-#: silent): ONE map now answers both the yesterday anchor and the edit prefill,
-#: so the anchor and the prefill can never disagree. Both names are read here so
-#: the shipped anchor scenarios stay green BEFORE and AFTER the rename; a page
-#: carrying neither still fails on the missing VALUE via the paragraph fallback.
+#: Render source (entry-date-picker, ADR-010/D-21): the WHOLE record as
+#: {iso_day: kg} inside the entry screen's one inline script. CONSCIOUS
+#: RENEGOTIATION of the map-const name (R-1a, never silent): ONE map answers
+#: both the yesterday anchor and the edit prefill, so the two can never
+#: disagree. The transitional `recentWeights` alias retired with the rename it
+#: carried; a page carrying no map at all still fails on the missing VALUE via
+#: the paragraph fallback below.
 RECORD_WEIGHTS_MAP = re.compile(r"const recordWeights = (\{[^;]*\});")
 #: Pre-fix render source: the server-rendered anchor paragraph. Kept as fallback
 #: so the skew regression fails on the wrong VALUE shown, not on a missing marker.
@@ -651,11 +649,8 @@ SERVER_RENDERED_YESTERDAY = re.compile(r"yesterday: (\d+\.\d) kg")
 def embedded_weights(html: str) -> dict[str, float] | None:
     """The day-to-weight map the entry screen hands the phone, or None if the
     page carries no map at all (pre-fix render)."""
-    for pattern in (RECORD_WEIGHTS_MAP, RECENT_WEIGHTS_MAP):
-        found = pattern.search(html)
-        if found is not None:
-            return dict(json.loads(found.group(1)))
-    return None
+    found = RECORD_WEIGHTS_MAP.search(html)
+    return dict(json.loads(found.group(1))) if found is not None else None
 
 
 class ScreenService(_Service):
@@ -1390,8 +1385,12 @@ ALL_SCALE_WINDOWS = ("1W", "1M", "3M", "6M", "1Y", "ALL")
 
 
 def entry_row_text(day: date, kg: float) -> str:
-    """The one row grammar every entries list speaks (A18): 'Fri 24 Jul — 82.2 kg'."""
-    return f"{day:%a} {day.day} {day:%b} — {kg:.1f} kg"
+    """The one row grammar every entries list speaks (A18): 'Fri 24 Jul — 82.2 kg'.
+
+    Its day half is `day_label` (D-24), so this oracle cannot fork a second
+    calendar wording any more than the production side can -- and it stays an
+    INDEPENDENT re-derivation: nothing here imports the server's own formatter."""
+    return f"{day_label(day)} — {kg:.1f} kg"
 
 
 class HomeGraphService(_Service):
@@ -1543,7 +1542,7 @@ class RecentListService(_Service):
 
     def assert_day_absent(self, ctx: SimpleNamespace, day: date) -> None:
         rows = self._rows(ctx.response.text)
-        marker = f"{day:%a} {day.day} {day:%b}"
+        marker = day_label(day)
         offenders = [row for row in rows if marker in row or "0.0 kg" in row]
         assert not offenders, (
             f"a missed day must be simply absent -- no zero, no placeholder (A18), "
@@ -1627,9 +1626,7 @@ class HistoryRecordService(_Service):
     def assert_days_absent(self, ctx: SimpleNamespace, start: date, end: date) -> None:
         rows = self._rows(ctx.response.text)
         gap_days = [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
-        offenders = [
-            row for row in rows for day in gap_days if f"{day:%a} {day.day} {day:%b}" in row
-        ]
+        offenders = [row for row in rows for day in gap_days if day_label(day) in row]
         assert not offenders, (
             f"days without an entry must be absent from the list exactly as they are "
             f"gaps in the plot, but the list carries {offenders}"

@@ -8,8 +8,9 @@ Current scope: login, save-entry (confirmed and rejected paths, inline
 messaging), history read-back, trend read-back (smoothed line, windowed
 output, pure read per ADR-009), graph page (trend default lens, Trend/Raw
 toggle sharing the selected window, one trend.study.opened per open),
-entry screen (instant typing, yesterday anchor, ambient home.graph.shown
-delivery), PWA manifest + minimal service worker (app-shell cache only,
+entry screen (instant typing, date row above the field, one hint line,
+ambient home.graph.shown delivery), PWA manifest + minimal service worker
+(app-shell cache only,
 D-11), telemetry counts with the KPI-1 speed report and the KPI-8 repair
 count (write-time backdated classification, ADR-011).
 """
@@ -240,7 +241,7 @@ def record_weights_map(entries: Sequence[Entry]) -> dict[str, float]:
     Why the whole record and not a window: a March 2026 entry must still prefill
     in 2028 (A24), so any bound fails by construction. It costs nothing to serve
     -- a pure projection of the single all_entries() read GET / already performs,
-    beside recent_entry_rows and complete_record_rows (zero added I/O, zero
+    beside date_row_earliest_day and recent_entry_rows (zero added I/O, zero
     port changes). ADR-010 quantifies the byte cost (~5.6 KB/yr) and pins the
     ~2,000-entry reversal trigger.
 

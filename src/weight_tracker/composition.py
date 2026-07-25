@@ -45,10 +45,11 @@ def build_app(
       rate-limited login) around all routes except /login and /healthz.
     - Routes (driving adapters over the driving ports):
         POST /login                      AccessGate
-        GET  /                           entry screen (today preselected, focused decimal
-                                         field, yesterday reference, trend glance line from
-                                         the same fetched entries; render with glance data
-                                         emits trend_glance_shown, D-13/D-14)
+        GET  /                           entry screen (date row above the focused decimal
+                                         field, ONE hint line carrying the yesterday anchor
+                                         / edit / gap states, trend glance line -- all from
+                                         the same single fetched entry list; render with
+                                         glance data emits trend_glance_shown, D-13/D-14)
         POST /entries                    WeightLogging.record_or_replace(date, kg, entry_ms,
                                          today?) -- `today` is the phone's own day: additive,
                                          optional, backward-compatible; absent or garbled falls
@@ -63,7 +64,9 @@ def build_app(
                                          in-place refresh; delivery emits trend_glance_shown)
         GET  /entries?scale=...          WeightHistory.entries_in(window)
         GET  /trend?scale=...            TrendProjection.trend_series_in(window)
-                                         (emits trend_view_opened event, KPI-3)
+                                         (a PURE READ since ADR-009: the trend_view_opened
+                                         emission is retired -- deliberate study is counted
+                                         on /graph opens and the study beacon)
         GET  /graph?view=...&scale=...   graph page (default view=trend A4; one-tap
                                          Trend/Raw toggle shares selected_time_scale)
         GET  /stats                      KPI query surface (entry speed, adherence, trend

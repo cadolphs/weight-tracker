@@ -53,8 +53,7 @@ def validate_entry_date(raw: str, server_utc_today: date) -> date | Rejected:
     parsed = _parse_iso_date(raw)
     if parsed is None:
         return Rejected(RejectionReason.BAD_DATE)
-    latest_allowed = server_utc_today + timedelta(days=MAX_DEVICE_SKEW_DAYS)
-    if parsed > latest_allowed:
+    if parsed > _latest_plausible_day(server_utc_today):
         return Rejected(RejectionReason.FUTURE_DATE)
     return parsed
 
@@ -73,8 +72,8 @@ def bounded_day_frame(claimed: str, server_utc_today: date) -> date | None:
     parsed = _parse_iso_date(claimed)
     if parsed is None:
         return None
-    earliest = server_utc_today - timedelta(days=MAX_DEVICE_SKEW_DAYS)
-    latest = server_utc_today + timedelta(days=MAX_DEVICE_SKEW_DAYS)
+    earliest = _earliest_plausible_day(server_utc_today)
+    latest = _latest_plausible_day(server_utc_today)
     return min(max(parsed, earliest), latest)
 
 
@@ -94,6 +93,18 @@ def apply_entry(record: Mapping[date, float], day: date, weight_kg: float) -> di
     One-entry-per-day invariant: never duplicates, always replaces. All other days unchanged.
     """
     return {**record, day: weight_kg}
+
+
+def _latest_plausible_day(server_utc_today: date) -> date:
+    """The furthest AHEAD a real timezone can carry a device (A5). One copy of the
+    forward skew arithmetic: the authoritative no-future rule and the read/save day
+    framing must agree on where "tomorrow somewhere" stops being believable."""
+    return server_utc_today + timedelta(days=MAX_DEVICE_SKEW_DAYS)
+
+
+def _earliest_plausible_day(server_utc_today: date) -> date:
+    """The furthest BEHIND a real timezone can carry a device (A5)."""
+    return server_utc_today - timedelta(days=MAX_DEVICE_SKEW_DAYS)
 
 
 def _parse_weight_decimal(raw: str) -> Decimal | None:
