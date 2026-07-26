@@ -9,7 +9,13 @@ outcomes:
   summary: WeightLogging.record_or_replace — capture or replace one day's weight
   feature: weight-trend-tracker
   inputs:
-  - shape: date (device-local ISO day), raw weight string, optional entry_ms
+  # AMENDED at DISTILL of entry-date-picker (2026-07-24, ADR-011): the save message
+  # gains ONE additive, optional, backward-compatible field — `today`, the phone's own
+  # calendar day. Absent (curl/API clients, every pre-existing caller) means the server's
+  # UTC day frames the judgement; a garbled claim is treated the same way. It NEVER
+  # rejects a save. The port protocol itself is unchanged (ports.py untouched).
+  - shape: date (device-local ISO day), raw weight string, optional entry_ms,
+      optional today (the phone's claimed day)
   output:
     shape: Saved{date, weight_kg, confirmation} | Rejected{reason from closed set}
   keywords:
@@ -169,3 +175,55 @@ outcomes:
   - OUT-8
   superseded_by: null
   # Registered manually at DISTILL (2026-07-24): same CLI defect as OUT-8.
+- id: OUT-10
+  kind: operation
+  summary: Edit prefill delivery — the whole record answers the entry screen's date row
+  feature: entry-date-picker
+  inputs:
+  - shape: an entry-screen render (GET /) over any record
+  output:
+    shape: >
+      a whole-record {iso_day: kg} map embedded in the page's one inline script —
+      ONE map answering both the yesterday anchor and the edit prefill for ANY stored
+      day, however old; a missing key is a gap (no-entry presentation), a missing map
+      is guarded (the save is never blocked); a pure projection of the all_entries()
+      read GET / already performs, so read-only ports gain no methods
+  keywords:
+  - edit-prefill
+  - whole-record-map
+  - date-row
+  - degrade-to-absent
+  - adr-010
+  artifact: tests/weight-trend-tracker/acceptance/milestone-10-dated-entry.feature
+  related:
+  - OUT-1
+  - OUT-2
+  superseded_by: null
+  # Registered manually at DISTILL (2026-07-24): same CLI defect as OUT-8/OUT-9.
+- id: OUT-11
+  kind: invariant
+  summary: KPI-1 sample purity — a repair is never counted as a morning
+  feature: entry-date-picker
+  inputs:
+  - shape: any save whose date is not the day the phone claims as its own (skew-clamped;
+      an absent or garbled claim falls back to the server's UTC day and never refuses
+      the save)
+  output:
+    shape: >
+      entry_ms recorded as NULL — 0 entry-speed samples and an unmoved weekly
+      median, however slow the repair was — plus "backdated": true on the entry.saved
+      payload, counted on /stats as backdated_saves_this_week (KPI-8); the save's effect
+      universe stays one {date} row + one entry.saved event; the trail, not
+      entries.entry_ms, is KPI-1's source of truth
+  keywords:
+  - kpi-1-purity
+  - backdated-save
+  - write-time-classification
+  - repair-vs-morning
+  - adr-011
+  artifact: tests/weight-trend-tracker/acceptance/milestone-10-dated-entry.feature
+  related:
+  - OUT-1
+  - OUT-9
+  superseded_by: null
+  # Registered manually at DISTILL (2026-07-24): same CLI defect as OUT-8/OUT-9.

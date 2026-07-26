@@ -41,7 +41,7 @@ steps:
       - name: "today_date"
         source: "device-local calendar date"
         displayed_as: "preselected date, one-entry-per-day key"
-        consumers: ["step 1 default date", "one-per-day rule", "step 1 yesterday anchor (device day, fix-device-day-reads)", "steps 2-3 window frame (?today= from device, fix-device-day-reads)"]
+        consumers: ["step 1 default date", "one-per-day rule", "step 1 yesterday anchor (device day, fix-device-day-reads)", "steps 2-3 window frame (?today= from device, fix-device-day-reads)", "step 4 picker default + max bound + post-save reset (entry-date-picker)"]
       - name: "unit_label_kg"
         source: "single UI constant (metric only)"
         displayed_as: "'kg' suffix"
@@ -115,19 +115,29 @@ steps:
 
   - id: 4
     name: "Maintain the record"
-    action: "Select a past date; add a missed entry or correct a value"
-    emotional_state: { entry: "mild annoyance (gap/typo noticed)", exit: "trust restored" }
-    integration_checkpoint: "After a past-day change, raw graph and trend recompute over the affected range"
+    action: "On the entry screen, change the date field (native picker, defaults to today, max today) to a past day; field prefills the stored value with an 'Editing …' hint, or clears with 'No entry … yet' for a gap; save corrects or backfills via the one-per-day upsert; date resets to today after save" # entry-date-picker
+    emotional_state: { entry: "mild annoyance (gap/typo noticed)", exit: "trust restored — on the same screen, in seconds" }
+    integration_checkpoint: "After a past-day change, raw graph and trend recompute over the affected range; front-page graph, glance line, and recent list refresh in place via the same save response"
     failure_modes:
       - "Future-dated entry accepted"
       - "Editing a past day creates a duplicate instead of replacing"
       - "Derived trend not recomputed after correction"
+      - "Blind overwrite: past day edited without the stored value shown (prefill + editing hint required)" # entry-date-picker
+      - "Habit-typing after a backdated save overwriting the same past day (date must reset to today post-save)" # entry-date-picker
+      - "Maintenance saves polluting the KPI-1 morning-speed samples (backdated saves must add 0 samples)" # entry-date-picker
+      - "Date row taxing the default morning flow (must stay zero extra taps, autofocus + keypad unchanged)" # entry-date-picker
     gherkin: |
       Scenario: A forgotten day is backfilled
         Given Clemens forgot to log Sunday 20 July 2026
         When he selects 20 July and saves 82.6 kg
         Then the entry appears dated 20 July
         And the raw graph and trend include it
+
+      Scenario: A mistyped value is corrected in place
+        Given the stored entry for Tuesday 21 July 2026 is 88.4 kg
+        When he selects 21 July, sees the field prefilled with 88.4, and saves 82.4 kg
+        Then exactly one entry exists for 21 July, at 82.4 kg
+        And the trend recomputes without the phantom spike
 
 integration_validation:
   shared_artifact_consistency:
@@ -157,3 +167,6 @@ changelog:
   - date: "2026-07-24"
     feature: "graph-first-home"
     change: "Step 1 restructured graph-first: full-control trend graph (lens + scale) above the entry form, glance line kept, last-7 display-only entries list below; graph/glance/list refresh in place after save. Steps 2/3 now start ambient on the front page; 'History' = deliberate visit to the combined page (full graph + complete entries list). Failure modes added: ambient render counted as deliberate study (KPI-3 inflation), graph/list fetch blocking entry, list/plot disagreement; keypad covering the graph on open is ACCEPTED (locked D6), noted, not a failure. selected_time_scale rule scoped per surface (no cross-surface persistence). Entry primacy (autofocus, keypad, <=2 s) unchanged."
+  - date: "2026-07-24"
+    feature: "entry-date-picker"
+    change: "Step 4 gains its mechanism (DISCUSS): the entry screen's native date field (default today, max today) IS the maintenance surface — backfill and correct ride the existing one-per-day upsert. Prefill-with-hint for stored days, no-entry hint for gaps, single hint line shared with the yesterday anchor, post-save reset to today. Failure modes added: blind overwrite, habit-typing clobber, KPI-1 sample pollution, date-row friction. today_date consumers extended (picker default + max + reset). Steps 2-3 untouched; step 1 unchanged in tap count."

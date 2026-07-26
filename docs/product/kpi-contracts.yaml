@@ -62,6 +62,20 @@ events:
       surface: "home | history"
       control: "lens | scale"
       value: "trend|raw or 1W|1M|3M|6M|1Y|ALL"
+  # --- entry-date-picker (DISTILL 2026-07-24, ADR-011: write-time classification) ---
+  # No new event: entry.saved gains TWO payload fields instead, so the save's effect
+  # universe stays one {date} row + one entry.saved event (D-13/D-19/D-23 contract shape).
+  - name: entry.saved
+    emitted: server-side, on successful record_or_replace (Saved only, never Rejected) —
+      shipped since weight-trend-tracker; the payload is EXTENDED here.
+    fields:
+      date: "ISO date of the entry (device-local calendar day)"
+      entry_ms: "client-measured ms from screen-interactive to save tap; NULL when the save
+        is backdated (a repair carries no morning timing — KPI-1 purity rides the shipped
+        null-skip in entry_ms_samples_since)"
+      backdated: "true when the saved date is not the day the phone claimed as its own
+        (POST /entries `today`, skew-clamped; absent/garbled claim falls back to the
+        server's UTC day and NEVER refuses the save). KPI-8's instrument."
 
 kpis:
   - id: KPI-1
@@ -69,12 +83,26 @@ kpis:
     type: leading
     target: { median_ms: 5000, p90_ms: 10000, window: rolling 7 days }
     baseline: "30000-45000 ms (old app, estimated)"
-    instrument: entries.entry_ms (persisted with each save; entry_logged event mirrors it)
-    storage: entries table + events table
+    # SSOT CORRECTED (DISTILL 2026-07-24, entry-date-picker R-2): the APPEND-ONLY
+    # TRAIL is KPI-1's source of truth — which is what /stats has always read
+    # (routes.py: entry_ms_samples_since over events). The query below has been
+    # REPLACED accordingly: the previous `SELECT ... FROM entries` form diverged
+    # from the shipped code and would now be actively wrong, because
+    # correcting a past day upserts entry_ms = NULL over that row, ERASING the
+    # original morning's timing from `entries` while the trail keeps it.
+    # PURITY RULE (A23/ADR-011): only same-day saves are samples. A backdated save
+    # records entry_ms = NULL, so a repair — however slow — contributes 0 samples
+    # and cannot drag the weekly median the 5-second target guards.
+    instrument: entry.saved payload entry_ms on the append-only events trail
+      (entries.entry_ms is a convenience column, NOT the KPI source — it is nulled
+      by any later correction of that day)
+    storage: events table (trail) — authoritative
     query: |
-      SELECT COUNT(*) n, AVG(entry_ms) avg_ms FROM entries
-      WHERE date >= date('now','-7 day') AND entry_ms IS NOT NULL;
-      -- median/p90 computed in the /stats handler over the same row set
+      SELECT COUNT(*) n, AVG(json_extract(payload,'$.entry_ms')) avg_ms
+      FROM events
+      WHERE name = 'entry.saved' AND ts >= date('now','-7 day')
+        AND json_extract(payload,'$.entry_ms') IS NOT NULL;
+      -- median/p90 computed in the /stats handler over the same sample set
     dashboard: /stats "Entry speed" card (7-day median + p90 vs 5s/10s thresholds)
     alert: none-automated; weekly manual review (single user)
 
@@ -84,6 +112,11 @@ kpis:
     north_star: true
     target: { days_per_week: 6, consecutive_weeks: 4 }
     baseline: "5-6/7 self-reported in old app"
+    # NOTE (entry-date-picker R-3, 2026-07-24): a backfill now retroactively improves a
+    # past week's adherence. Judged HONEST and left as is — the record IS more complete
+    # after the repair, and adherence is a property of the record, not of when it was
+    # typed. If "logged that morning" ever needs separating from "logged at all", group
+    # by the trail's logged_at instead of by entries.date; not done, deliberately.
     instrument: none — derived from the entry record itself
     storage: entries table
     query: |
@@ -125,7 +158,11 @@ kpis:
     instrument: trend.glance.shown event paired with entry.saved per calendar day
     storage: events table
     query: |
-      WITH logged AS (SELECT DISTINCT date(ts) d FROM events WHERE name = 'entry.saved'),
+      -- DENOMINATOR CORRECTED (entry-date-picker R-3): a repair writes an entry.saved
+      -- row on a day that may not be a LOGGING day at all. Backdated saves are excluded
+      -- so the "logging days" denominator keeps meaning "mornings he logged".
+      WITH logged AS (SELECT DISTINCT date(ts) d FROM events WHERE name = 'entry.saved'
+                        AND COALESCE(json_extract(payload,'$.backdated'), 0) = 0),
            glanced AS (SELECT DISTINCT date(ts) d FROM events WHERE name = 'trend.glance.shown')
       SELECT COUNT(*) logging_days,
              SUM(EXISTS (SELECT 1 FROM glanced WHERE glanced.d = logged.d)) glance_days
@@ -146,7 +183,9 @@ kpis:
       (read-time pairing, KPI-5 precedent; server-side delivery proxy per Q3)
     storage: events table
     query: |
-      WITH logged AS (SELECT DISTINCT date(ts) d FROM events WHERE name = 'entry.saved'),
+      -- DENOMINATOR CORRECTED (entry-date-picker R-3), same clause as KPI-5.
+      WITH logged AS (SELECT DISTINCT date(ts) d FROM events WHERE name = 'entry.saved'
+                        AND COALESCE(json_extract(payload,'$.backdated'), 0) = 0),
            pictured AS (SELECT DISTINCT date(ts) d FROM events WHERE name = 'home.graph.shown')
       SELECT COUNT(*) logging_days,
              SUM(EXISTS (SELECT 1 FROM pictured WHERE pictured.d = logged.d)) graph_days
@@ -154,6 +193,28 @@ kpis:
       -- presence % = graph_days / logging_days, surfaced on /stats
     dashboard: /stats ambient pairing card (home_graph_shown_this_week beside
       trend_study_this_week — ambient vs deliberate, same rolling week)
+    alert: none-automated; weekly manual review
+
+  # --- entry-date-picker (DISTILL 2026-07-24) ----------------------------------
+  - id: KPI-8
+    name: in-app-record-repair
+    type: leading
+    target: { noticed_defects_repaired_in_app_pct: 100, repair_seconds: 30 }
+    baseline: "0% — before the date row a noticed gap or typo was unrepairable in the app"
+    instrument: >
+      entry.saved payload flag `backdated: true` (write-time classification,
+      ADR-011); read on /stats as `backdated_saves_this_week` via the new read-model
+      query `backdated_saves_since` (entry_ms_samples_since pattern). The ≤30 s repair
+      time is SELF-REPORTED at dogfood — deliberately NOT stamped into the morning-speed
+      field, so "a repair counted as a morning" stays non-representable.
+    storage: events table
+    query: |
+      SELECT strftime('%Y-%W', ts) week, COUNT(*) repairs
+      FROM events WHERE name = 'entry.saved'
+        AND json_extract(payload,'$.backdated') = 1
+      GROUP BY week ORDER BY week DESC LIMIT 8;
+    dashboard: /stats "Repairs" counter (backdated_saves_this_week, same rolling week
+      as its neighbours)
     alert: none-automated; weekly manual review
 
   - id: KPI-4
@@ -329,6 +390,38 @@ at_scenario_links:
     measurement_window: every push (CI)
     gate: hard
 
+  # --- DISTILL tightening (2026-07-24, feature entry-date-picker) ---------------
+  - kpi: KPI-8
+    at_tag: "@kpi"
+    scenarios:
+      - "A slow repair never slows the morning record (milestone-10-dated-entry.feature)"                     # +1 repair counted
+      - "Correcting a timed morning leaves the week's mornings intact (milestone-10-dated-entry.feature)"     # repair on a timed day still counts as a repair
+      - "A morning still counts as a morning (milestone-10-dated-entry.feature)"                              # converse: a same-day log is NOT a repair
+      - "The future stays closed however the phone frames its day (milestone-10-dated-entry.feature)"         # a refused save marks nothing
+    measurement_window: per rolling ISO week (raw event counts, KPI-3/KPI-7 frame)
+    gate: soft   # instrumentation emitting + queryable is AT-asserted; the 100% / <=30 s targets are dogfood data
+  - kpi: KPI-1
+    at_tag: "@kpi @property"
+    scenarios:
+      - "A slow repair never slows the morning record (milestone-10-dated-entry.feature)"                     # PURITY: a 22 s backfill adds 0 samples
+      - "Correcting a timed morning leaves the week's mornings intact (milestone-10-dated-entry.feature)"     # R-2: the trail keeps the original timing the entries row loses
+      - "A morning still counts as a morning (milestone-10-dated-entry.feature)"                              # the converse guard: real mornings still counted
+    note: >
+      SSOT correction (R-2): the append-only trail is KPI-1's source of truth (what /stats
+      has always read); the documented entries.entry_ms query was wrong and is fixed above,
+      because correcting a past day NULLs that column. Purity rule per A23/ADR-011: only
+      same-day saves are samples. Seeding renegotiation recorded at DISTILL: a timed morning
+      is seeded ON its own day (the acceptance harness walks the clock), because a morning
+      IS a same-day save — otherwise a week of seeds would read as seven repairs.
+    measurement_window: rolling 7 days
+    gate: soft
+  - guardrail: G-2
+    at_tag: "@property @kpi"
+    scenarios:
+      - "The morning flow never pays for the picker (milestone-10-dated-entry.feature)"   # date row present, readiness + focus unchanged (no focus theft, one autofocus)
+    measurement_window: every push (CI)
+    gate: hard
+
 baselines:
   # Recorded at DELIVER completion (2026-07-23). Production not yet deployed
   # (operator prerequisites pending) — instrumentation verified live against a
@@ -386,3 +479,40 @@ baselines:
       trend_study_this_week verified emitting in the same demo run — unchanged by
       ambient front-page renders and post-save refetches (purity), moved 2 -> 3 on
       one History-page open.
+  # Recorded at DELIVER completion of entry-date-picker (2026-07-25).
+  - kpi: KPI-8
+    status: instrumentation-verified
+    measured_baseline: 0
+    baseline_note: >
+      MEASURED BASELINE 0 AT GA. The counter ships 2026-07-25 with no production data
+      behind it: before the date row there was no in-app repair path at all, so every
+      historical week reads 0 by construction, not by absence of instrumentation. The
+      first non-zero backdated_saves_this_week is therefore the first real repair, and
+      the 100% / <=30 s targets stay dogfood-measured (self-reported) until then.
+    evidence: >
+      live-server demo 2026-07-25 (entry-date-picker Phase 3.5, real uvicorn on
+      127.0.0.1:8811 + real SQLite + real HTTP via curl, NOT the test harness):
+      4 saves — one timed morning (2026-07-25, entry_ms 4200), one backfill
+      (2026-07-19), one correction saved twice over the same day (2026-07-22) —
+      then GET /stats read backdated_saves_this_week = 3 beside
+      speed{median_ms:4200, p90_ms:4200.0, sample_count:1}. A forged future save
+      (2026-07-31) was rejected and marked nothing. Counter live, queryable, and
+      moving only on repairs.
+  - kpi: KPI-1
+    status: purity-invariant-verified
+    evidence: >
+      SAMPLE-PURITY INVARIANT (A23/ADR-011) live from 2026-07-25 and STRUCTURAL, not
+      conventional: a backdated save records entry_ms = NULL at write time, so a repair
+      cannot contribute a speed sample even in principle — "a repair counted as a
+      morning" is non-representable rather than merely untested. Verified in the same
+      2026-07-25 demo: 4 saves produced sample_count 1 (only the timed morning), and
+      the pre-feature median/p90 frame is unchanged, so the KPI-1 series is CONTINUOUS
+      across this feature — no re-baselining needed. Classification is falsifiable at
+      the HTTP boundary (the phone's `today` claim, skew-clamped, backstopped by
+      validate_entry_date) and is pinned by milestone-10's @kpi @property scenarios
+      plus the skew-ahead morning added 2026-07-25. Target and baseline unchanged
+      (median <= 5000 ms, p90 <= 10000 ms; baseline 30000-45000 ms old-app estimate).
+      OPEN, owned by DISTILL: the documented ad-hoc query above now reads the trail,
+      but R-2/R-3 (entries.entry_ms as a convenience column; KPI-5/KPI-7 "logging days"
+      denominators counting a repair on a non-logging day) are recorded as upstream
+      issues in docs/feature/entry-date-picker/feature-delta.md and NOT fixed here.

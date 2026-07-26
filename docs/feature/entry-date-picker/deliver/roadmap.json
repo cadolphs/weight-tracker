@@ -1,0 +1,207 @@
+{
+  "roadmap": {
+    "project_id": "entry-date-picker",
+    "created_at": "2026-07-24T22:37:12Z",
+    "total_steps": 7
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Phase 01 \u2014 Pure day judgment and the repair counter: the KPI-1 purity foundation (ADR-011, milestone-10)",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Pure day judgment: the phone's claimed day, clamped",
+          "description": "Extract the clamp arithmetic out of day_frame_or_bad_request into core/validation.py as bounded_day_frame, and add is_backdated beside it. Both total over hostile input, clock-free and I/O-free; the shell keeps its 400, and one copy of the calendar rule survives.",
+          "criteria": [
+            "core/validation.py serves bounded_day_frame(claimed, server_utc_today): parses an ISO claim, clamps it to \u00b1MAX_DEVICE_SKEW_DAYS, answers None when the text is unparseable",
+            "core/validation.py serves is_backdated(entry_day, device_today): true exactly when the entry day is not the device's own day",
+            "day_frame_or_bad_request delegates to bounded_day_frame \u2014 one copy of the clamp; the shell still answers 400 on a garbled ?today= and device-day-frame.feature stays green",
+            "Paired Hypothesis PBTs cover both functions across the full skew range: total over hostile input, no clock read, no I/O (DELIVER pre-requisite 1)",
+            "import-linter layer contract and mypy strict stay green; the pure core still imports nothing outward"
+          ],
+          "estimate": "1h",
+          "deps": [],
+          "files_to_modify": [
+            "src/weight_tracker/core/validation.py",
+            "src/weight_tracker/web/routes.py"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest. STAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. \u2014 ADR-011 signatures are pinned: bounded_day_frame(claimed, server_utc_today) -> date | None, is_backdated(entry_day, device_today) -> bool. Contract shape: pure-function (return-only), universe \u2205 \u2014 no clock, no I/O, no globals (FC/IS, ADR-005). PBTs live beside the shipped ones in tests/weight-trend-tracker/acceptance/properties/ (test_validation_properties.py pattern); strategies must span claims well outside \u00b1MAX_DEVICE_SKEW_DAYS in both directions plus unparseable text. routes.py is touched ONLY to delegate \u2014 the 400 phrasing and the HTTPException stay in the shell (DESIGN Reuse Analysis: 'extract the pure clamp into core; shell keeps the 400'). Nothing on the entry screen changes yet; no scenario is unskipped by this step. @pending discipline: unskip nothing here.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-10-dated-entry.feature",
+          "scenario_name": "A phone that will not say which day it is on is still served"
+        },
+        {
+          "id": "01-02",
+          "name": "The stats page counts in-app repairs",
+          "description": "CREATE backdated_saves_since in shell/telemetry_store.py following the entry_ms_samples_since payload-predicate shape, wire it by partial at the composition root, and serve backdated_saves_this_week on /stats over the same rolling week as its neighbours (KPI-8, D-23).",
+          "criteria": [
+            "shell/telemetry_store.py serves backdated_saves_since(db_path, since): counts entry.saved events whose payload carries backdated true, on since or any later day",
+            "/stats serves backdated_saves_this_week over the same rolling-week frame as trend_study_this_week and home_graph_shown_this_week; the speed report and every shipped key are unchanged",
+            "composition.py wires the query by partial beside entry_ms_samples_since, with the route-contract docstring naming the new key; ports.py untouched, no new adapter, no new probe",
+            "A rejected future-dated save leaves the whole trail still: entry count, speed samples and the repair counter all unmoved",
+            "No schema change: entry_ms stays nullable, CODE_SCHEMA_VERSION stays 1, the schema-version guard stays green"
+          ],
+          "estimate": "1h",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/shell/telemetry_store.py",
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/composition.py"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest. STAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. \u2014 The ONE new component of this feature (DESIGN Reuse Analysis: CREATE NEW). Copy the shape of entry_ms_samples_since verbatim \u2014 closing(sqlite3.connect), ts >= since.isoformat(), json.loads(payload) \u2014 different predicate, different return. count_events_since cannot serve KPI-8: it is name-parameterised only, and D-23 deliberately keeps ONE entry.saved event per save rather than forking the trail grammar. Contract shape: read-only query, universe \u2205. This step alone greens its scenario: the rejection and nothing-stored clauses already hold, and the counter merely has to EXIST for the trail-untouched oracle to mean anything (red-classification.md). Ordering, not coupling, is why it follows 01-01: both edit routes.py. @pending discipline: unskip only this step's 1 scenario.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-10-dated-entry.feature",
+          "scenario_name": "The future stays closed however the phone frames its day"
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Phase 02 \u2014 Write-time classification and the record the picker can read (ADR-010 + ADR-011, milestone-10)",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "A repair is never counted as a morning",
+          "description": "POST /entries reads the additive optional today claim, classifies after validate_entry_date through the pure core, records entry_ms as NULL for a backdated save, and stamps backdated true on its entry.saved payload. Response shape unchanged.",
+          "criteria": [
+            "POST /entries accepts an optional today claim; absent or garbled falls back to the server's UTC day and never answers 400",
+            "Classification runs after validate_entry_date, so only accepted dates are ever judged and the no-future rule stays authoritative",
+            "A backdated save records entry_ms NULL in the row and on the trail \u2014 zero speed samples \u2014 and carries backdated true for the repair counter",
+            "A same-day save keeps its timing: one speed sample gained, repair counter unmoved; correcting a timed morning leaves the week's samples and median intact",
+            "WeightLogging's universe stays one {date} row plus one entry.saved event; ports.py untouched; confirmation, glance and recent unchanged"
+          ],
+          "estimate": "1.5h",
+          "deps": [
+            "01-01",
+            "01-02"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/composition.py"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest. STAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. \u2014 THE feature's live bug fix: today a 22-second backfill moves speed.sample_count 7 \u2192 8 (red-classification.md). Order inside the route is load-bearing: validate weight \u2192 validate_entry_date \u2192 bounded_day_frame(submitted.get('today'), clock day) \u2192 is_backdated \u2192 withhold entry_ms \u2192 upsert \u2192 append_event. Contract shape: bounded-change; declared universe = one {date} row + one entry.saved event; the withheld timing and the payload flag are route-level enrichment on the glance/recent/confirmation precedent (brief.md), never a port widening. PBT target: over arbitrary (entry_day, claim) pairs the trail delta is exactly one of {morning: +1 sample, +0 repairs} or {repair: +0 samples, +1 repair} \u2014 never both, never neither. composition.py takes only the route-contract docstring (the today field, the purity rule). INHERITED GREEN GUARDS (red-classification.md:32,41): 'A forgotten day is backfilled from the entry screen' and 'A mistyped past day is corrected in place' are already GREEN \u2014 the shipped save path backfills, upserts one-per-day, confirms, hands back recent+glance and recomputes the trend. This step must KEEP them green while threading classification through that same path, never turn them green; they are regression clauses, not this step's justification (its RED anchors are the three purity scenarios). If either reds, the classification has disturbed the save path \u2014 treat it as a defect in this step, not a renegotiation. @pending discipline: unskip only this step's 3 RED scenarios; the two inherited guards above and the no-word-about-the-day outline stay green throughout.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-10-dated-entry.feature",
+          "scenario_name": "A slow repair never slows the morning record; A morning still counts as a morning; Correcting a timed morning leaves the week's mornings intact; A forgotten day is backfilled from the entry screen; A mistyped past day is corrected in place"
+        },
+        {
+          "id": "02-02",
+          "name": "Every stored day answers the picker",
+          "description": "recent_weights_map widens to record_weights_map \u2014 the whole record as {iso_day: kg} from the same all_entries() read, in the same template slot \u2014 and the inline script's const becomes recordWeights. RECENT_ANCHOR_ENTRIES retires with its sole consumer.",
+          "criteria": [
+            "GET / embeds the whole record as {iso_day: kg} in const recordWeights \u2014 one map answering both the yesterday anchor and the edit prefill",
+            "The embedded map equals the /entries?scale=ALL read-back exactly, for a March day as for yesterday",
+            "A day with no entry is absent from the map, so it is offered as a gap and never as a value",
+            "Zero added I/O: the same single all_entries() read still serves map, recent rows and glance; the two-second entry budget holds",
+            "RECENT_ANCHOR_ENTRIES retired with its sole consumer; read-only ports gain no methods at all (DELIVER pre-requisite 5)"
+          ],
+          "estimate": "1h",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/index.html"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest. STAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. \u2014 ADR-010/D-21: drop the head-4 slice, keep the shape. record_weights_map is a pure projection of the newest-first all_entries() read the route already performs \u2014 contract shape pure-function, universe \u2205 \u2014 exactly like recent_entry_rows and complete_record_rows beside it. Natural PBT: over any entry list the projection is a bijection onto {day: weight}, key set equal to the input day set, no value coerced. The AT harness reads const recordWeights FIRST and falls back to const recentWeights (DISTILL renegotiation R-1a, already landed) \u2014 so the rename is green before AND after; do not touch that regex. Byte cost is quantified in ADR-010 (~5.6 KB/yr); the reversal trigger is ~2,000 entries, far outside this record. Template change here is the map const and its data source only \u2014 the date row is 02-03. @pending discipline: unskip only this step's 1 new scenario; the gap-as-a-gap guard stays green.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-10-dated-entry.feature",
+          "scenario_name": "Any day of the record answers the picker; A gap is offered as a gap, never as a value"
+        },
+        {
+          "id": "02-03",
+          "name": "The date row rests above the weight field",
+          "description": "index.html gains a native date input with id entry-date, inside the entry form above the weight field and carrying no autofocus; the inline script sets its value and max to the device-local day, and GET / supplies min = first entry day minus one year.",
+          "criteria": [
+            "GET / renders a native date input with id entry-date inside the entry form, above the weight field, on every record including an empty one",
+            "The date row carries no autofocus: exactly one autofocus on the page (the weight field), no tabindex anywhere, decimal keypad intact",
+            "GET / supplies min = first entry day minus one year; an empty record omits min entirely",
+            "The inline script sets the row's value and max to the device-local day; unit-level pin owed (DELIVER pre-requisite 2)",
+            "The entry screen is still interactive within two seconds with the date row present, and the form never reflows under the thumb"
+          ],
+          "estimate": "1h",
+          "deps": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/routes.py",
+            "src/weight_tracker/web/templates/index.html"
+          ],
+          "implementation_notes": "TEST PARADIGM (mandatory): Unit tests for this step MUST be written as property-based tests using Hypothesis @given strategies + state-delta matchers (assert_state_delta over a declared universe with strict=True). Single-example unit tests are FALLBACK only \u2014 document why in a `# bypass:` comment if used. Acceptance scenarios MUST be framed as Property: blocks (quantified preconditions + invariant outcomes) where the contract supports it; classic Scenario: is fallback. Integration and E2E tests REMAIN single-example \u2014 they verify wiring, not invariants. Universe declaration is mandatory even when only one slot is checked: the unchanged() predicate covers the rest. STAGE CONTEXT (cascade): NEW code = Stage 0 (paradigm-from-day-zero, no debt accumulates). Bug-prone legacy code = Stage 1 first (state-delta migration captures hidden mutations, 33-75% yield), THEN Stage 2 PBT amplification (low yield by design \u2014 surface is debt-paid). Don't expect high hit rate on Stage-1-completed surfaces; that's healthy. \u2014 D-25/OQ-11: the server can supply only min, from the SAME all_entries() read (entries[-1].day is the first entry, newest-first) minus one year \u2014 a pure projection, contract shape pure-function, universe \u2205, with a natural PBT (for any non-empty list min == earliest day \u2212 365/366 days; empty list \u2192 no min). Rationale worth honouring: the trend grid spans first\u2192last entry day, so one mistyped year would permanently stretch every recompute. value and max are client-set because the server has no device day (A5) \u2014 they are UX assist only; validate_entry_date stays authoritative and still rejects a forged future date. No autofocus on the date input; setting .value/.max/.min never moves focus. No new script file, no new asset, no new dependency. @pending discipline: unskip only this step's 3 scenarios.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-10-dated-entry.feature",
+          "scenario_name": "The morning flow never pays for the picker; The picker cannot wander off before the record began; An empty record still opens straight into typing"
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Phase 03 \u2014 The one hint line, the client contract, and the calm dress (D-24/D8/A22, milestone-10 close)",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "One hint line serves anchor, edit and gap",
+          "description": "The yesterday-reference node becomes a single entry-hint node, never removed, filled by a pure hintFor over the embedded map with a dayLabel extracted from entryRowText. The submit payload carries the picked date plus the today claim, and after a save the row resets to today.",
+          "criteria": [
+            "GET / carries exactly one hint node, id entry-hint, on every render; id yesterday-reference no longer appears anywhere on the page",
+            "Pure hintFor answers three mutually exclusive states: the yesterday anchor on today, Editing {day} \u2014 was {v} kg, and No entry for {day} yet",
+            "The hint names its day through a dayLabel shared with entryRowText \u2014 one Fri 24 Jul grammar, never a second calendar wording",
+            "Submit sends the picked date and the device-local today claim; after a successful save the row returns to today, the field clears, the hint re-derives",
+            "The save response's date, weight_kg and recent merge into the client map, so anchor and prefill stay fresh with no reload"
+          ],
+          "estimate": "1.5h",
+          "deps": [
+            "02-01",
+            "02-03"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/templates/index.html"
+          ],
+          "implementation_notes": "EXEMPT FROM PARADIGM: this step's contract is a single-shot browser UI flow in the one inline script \u2014 hint wording, submitted payload and post-save reset are golden-text and event-order pins that no Hypothesis strategy can quantify in a browser-less suite. Compensate with property-based test at unit level on adjacent slot (01-01's bounded_day_frame/is_backdated PBTs and 02-02's record_weights_map projection PBT cover the pure logic the hint and the payload consume). \u2014 D-24: ONE #entry-hint node, present on EVERY render and never removed (today's code removes #yesterday-reference, index.html:88) \u2014 'never two hints at once' is structural, not conventional. hintFor(selectedDay, deviceToday, knownWeights) and dayLabel(iso) stay PURE; every DOM write lands at one apply site (FC/IS in the client, ADR-005). dayLabel is extracted from the shipped entryRowText \u2014 one Fri 24 Jul grammar, so the hint cannot fork the record's calendar wording; keep 'yesterday: 82.4 kg' verbatim (the AT fallback regex depends on it). OQ-10 wordings are final: 'Editing Thu 23 Jul \u2014 was 82.4 kg' / 'No entry for Sun 19 Jul yet'. Submit payload becomes {date: picker value, today: deviceLocalDay(), weight, entry_ms} \u2014 this is what makes ADR-011's purity rule falsifiable rather than a client convention. Post-save: dateInput.value = deviceLocalDay(), field cleared, focus back on #weight, hint re-derived; both date/weight_kg and recent are already on the wire, so merging them costs nothing. DELIVER pre-requisite 2: unit-level pins for the submitted payload, the post-save reset and the hint wording land here, plus dogfood verification (client-paint precedent D-15). G-5 must hold: still at most one inline script, zero new external origins. @pending discipline: unskip only this step's 1 scenario.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-10-dated-entry.feature",
+          "scenario_name": "One hint line serves the anchor and the repair alike"
+        },
+        {
+          "id": "03-02",
+          "name": "The date row wears the calm theme",
+          "description": "theme.css gains #entry-date and #entry-hint block rules \u2014 reserved hint-line height, comfortable touch target, AA contrast in both schemes \u2014 and renames the #yesterday-reference selector. sw.js bumps SHELL_CACHE to -v4 so an offline open never serves the pre-date-row entry screen.",
+          "criteria": [
+            "theme.css dresses #entry-date and #entry-hint with tokens only: no new classes, no new asset, no new external origin",
+            "The hint line reserves its height permanently, so a mid-session state change never moves the form under the thumb",
+            "Date row meets the 44 px touch target and AA contrast in both colour schemes; the yesterday-reference selector is renamed, not duplicated",
+            "sw.js SHELL_CACHE moves v3 to v4 with APP_SHELL unchanged, so an offline open stops serving the pre-date-row entry screen",
+            "All fourteen milestone-10 executions green with zero @pending; milestones 1\u20139, access-protection and device-day-frame suites green unmodified"
+          ],
+          "estimate": "1h",
+          "deps": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "src/weight_tracker/web/static/theme.css",
+            "src/weight_tracker/web/static/sw.js"
+          ],
+          "implementation_notes": "EXEMPT FROM PARADIGM: the production delta is a static stylesheet block plus a one-token cache-name bump against quantified guardrails (44 px, AA both schemes, no reflow) \u2014 there is no new Python unit and no invariant a Hypothesis strategy can range over. Compensate with property-based test at integration level on adjacent slot (the milestone-10 entry-primacy scenario pins \u22642 s readiness and no-focus-theft over the served page; G-4 contrast and G-2 no-reflow ATs are already gated in CI). DUPLICATE MAPPING, DELIBERATE \u2014 NOT an error: 'The morning flow never pays for the picker' is mapped here AND in 02-03. 02-03 turns it green when the date row first appears in the form; this step re-gates it because theme.css touches the same box \u2014 reserved hint-line height, 44 px target, contrast \u2014 and readiness (\u22642 s, no focus theft, no reflow under the thumb) is exactly what a stylesheet edit can silently break. The scenario is the guardrail for both the markup and its dress; each step must leave it green for its own reason. \u2014 DELIVER pre-requisite 3: reserved hint-line height matters more than before because the line now changes MID-SESSION, not only before first paint; technique and precedent are theme.css:139-144 (#home-graph #chart min-height \u2014 'the entry form never jumps under the thumb'). The date input inherits the shipped input { min-height: 44px; width: 100% }; add only what tokens cannot already give. DELIVER pre-requisite 4 (Forge's accepted catch): no new asset ships, but APP_SHELL pre-caches '/' itself, so SHELL_CACHE must still move to weight-tracker-shell-v4 \u2014 fetch is network-first, so an online morning is unaffected either way, but an OFFLINE open would otherwise serve the pre-date-row screen until the worker reinstalls. FEATURE GATES after this step (orchestrator-run, not step criteria): per-feature mutation gate \u226580% scoped to the seven modified files (CLAUDE.md); deploy through the existing pipeline; same-day dogfood of one real backfill or correction on the phone plus a normal morning log; verify KPI-8 visible on /stats and KPI-1 sample purity (a backdated save adds 0 speed samples); confirm the -v4 shell pickup. @pending discipline: unskip nothing new \u2014 this step closes the feature by holding every scenario green.",
+          "test_file": "tests/weight-trend-tracker/acceptance/milestone-10-dated-entry.feature",
+          "scenario_name": "The morning flow never pays for the picker"
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "src/weight_tracker/"
+    ],
+    "test_directories": [
+      "tests/weight-trend-tracker/",
+      "tests/common/"
+    ],
+    "excluded_patterns": [
+      "__init__.py",
+      "__pycache__/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer (Sentinel) + orchestrator verification",
+    "approved_at": "2026-07-24",
+    "notes": "Review 1: rejected_pending_revisions - 1 BLOCKER (2 orphan scenarios: 'A forgotten day is backfilled from the entry screen', 'A mistyped past day is corrected in place'), 1 MEDIUM (duplicate mapping of 'The morning flow never pays for the picker' across 02-03/03-02). Revision: both orphans attached to 02-01 as inherited GREEN-preserved regression clauses (red-classification.md:32,41) - not as the step's justification; duplicate documented as intentional two-stage readiness gate. Orchestrator re-verified: all 13 scenarios own a step, 02-01 at 5 scenarios (<8, no sizing flag), des-roadmap validate exit 0, des-verify-integrity --roadmap-only exit 0. Reviewer gates 2-6 (sizing, walking-skeleton N/A, pre-requisites 1-6, executable-contract fidelity, dependency order) passed on review 1."
+  }
+}

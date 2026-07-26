@@ -17,7 +17,7 @@ jobs:
         when: "my raw weight jumps 1.2 kg overnight after a restaurant dinner"
         i_want_to: "see a smoothed trend line that absorbs water-weight noise"
         so_i_can: "decide whether to adjust anything based on real movement, not noise"
-      - id: js-3-maintain
+      - id: js-3-maintain # 2026-07-24 (entry-date-picker): moment gains its UI — date field on the entry screen (backfill + correct via one-per-day upsert); no new moment
         when: "I notice I forgot to log yesterday or mistyped a value three days ago"
         i_want_to: "add or correct past days in place"
         so_i_can: "trust that my record and the trend derived from it are accurate"
@@ -59,4 +59,4 @@ jobs:
     opportunity_scoring: >
       Skipped per workflow rule: scoring only applies when multiple jobs compete.
       Exactly one job identified; capture/judge/maintain are moments of the same job.
-    features: [weight-trend-tracker, home-trend-display, calm-visual-theme, graph-first-home]
+    features: [weight-trend-tracker, home-trend-display, calm-visual-theme, graph-first-home, entry-date-picker]
