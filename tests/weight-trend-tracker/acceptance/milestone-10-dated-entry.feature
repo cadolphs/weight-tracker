@@ -54,6 +54,24 @@ Feature: The record repairs itself where the habit lives
     And nothing is stored
     And neither the morning-speed record nor the repair count moves
 
+  @driving_port @US-013 @contract-shape:bounded-change
+  Scenario: The day his phone has already reached is served
+    Given he logged 82.4 kg on 23 July 2026
+    And his phone is already in Saturday 25 July 2026
+    When a save of "82.0" for 25 July 2026 arrives from his phone
+    Then he sees the confirmation "Saved: 82.0 kg — Sat 25 Jul"
+    And 25 July 2026 holds exactly one entry of 82.0 kg
+
+  @driving_port @error @kpi @US-013 @contract-shape:unbounded-preservation
+  Scenario: The day beyond his phone's own stays closed
+    Given he logged 82.4 kg on 23 July 2026
+    And his phone is already in Saturday 25 July 2026
+    And he logged 82.0 kg on 25 July 2026
+    When a save of "81.9" for 26 July 2026 arrives from his phone
+    Then the save is rejected because future dates cannot be logged
+    And nothing is stored
+    And neither the morning-speed record nor the repair count moves
+
   @driving_port @property @kpi @real-io @adapter-integration @US-013 @contract-shape:bounded-change
   Scenario: A slow repair never slows the morning record
     Given he has logged timed entries every morning for the last week
@@ -67,6 +85,15 @@ Feature: The record repairs itself where the habit lives
     Given he has logged timed entries every morning for the last week
     When he takes 4200 ms to log "82.2" for today
     Then the week's morning-speed record gains that morning
+    And no repair is counted for it
+
+  @driving_port @kpi @US-013 @contract-shape:bounded-change
+  Scenario: A morning from a phone already in tomorrow is still a morning
+    Given he has logged timed entries every morning for the last week
+    And his phone is already in Saturday 25 July 2026
+    When he takes 4300 ms to log "82.0" for today
+    Then Saturday 25 July 2026 holds exactly one entry of 82.0 kg
+    And the week's morning-speed record gains that morning
     And no repair is counted for it
 
   @driving_port @error @US-013 @contract-shape:bounded-change
