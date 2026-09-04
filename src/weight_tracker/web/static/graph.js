@@ -112,7 +112,21 @@
     );
   }
 
-  function renderChart(data, lineOptionsFor) {
+  // Honest axis (ADR-012, D-31): the server offers an axis pair beside each
+  // windowed series; the engine hands it to uPlot untouched and computes
+  // nothing -- the floor, grid and pad live in core/axis.py alone. Anything
+  // but two finite numbers with lo < hi is left to uPlot's own range: an
+  // imperfect axis, never a blank chart (degrade-to-absent).
+  function isAxisPair(yRange) {
+    return (
+      Array.isArray(yRange) &&
+      yRange.length === 2 &&
+      yRange.every(Number.isFinite) &&
+      yRange[0] < yRange[1]
+    );
+  }
+
+  function renderChart(data, lineOptionsFor, yRange) {
     if (chart !== null) chart.destroy();
     const palette = paletteTokens();
     chart = new uPlot(
@@ -121,6 +135,7 @@
         height: 320,
         series: [{}, lineOptionsFor(palette)],
         axes: [themedAxis(palette, {}), themedAxis(palette, { label: "kg" })],
+        ...(isAxisPair(yRange) ? { scales: { y: { range: () => yRange } } } : {}),
       },
       data,
       chartHost,
@@ -146,7 +161,7 @@
       stroke: palette.raw,
       spanGaps: false,
       points: { show: true },
-    }));
+    }), history.y_range);
   }
 
   async function showTrend(scale) {
@@ -157,7 +172,7 @@
       label: "trend kg",
       stroke: palette.trend,
       width: 2,
-    }));
+    }), trend.y_range);
   }
 
   async function showGraph(scale) {

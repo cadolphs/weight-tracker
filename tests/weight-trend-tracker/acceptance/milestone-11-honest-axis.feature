@@ -65,7 +65,7 @@ Feature: The axis tells the truth about movement
     And the axis is the honest range for what is plotted
     And the axis runs from 76.0 to 78.5
 
-  @pending @driving_port @property @US-015 @contract-shape:pure-function
+  @driving_port @property @US-015 @contract-shape:pure-function
   Scenario: Toggling lens or scale never changes the rule
     Given his entries fall by 0.4 kg each week from 84.0 kg between 1 March 2026 and 31 May 2026
     And his weight has hovered around 77.2 kg from 1 June 2026 to 4 September 2026

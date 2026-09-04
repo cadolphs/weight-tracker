@@ -136,12 +136,18 @@ def test_the_app_shell_cache_moved_so_an_offline_open_is_not_served_yesterdays_s
     """No new asset ships -- but APP_SHELL pre-caches `/` ITSELF, and `/` is the
     page that just grew a date row. Fetch is network-first, so an online morning
     never notices; an OFFLINE open would keep being served the pre-date-row entry
-    screen until the worker reinstalls, and only a new cache name reinstalls it."""
+    screen until the worker reinstalls, and only a new cache name reinstalls it.
+
+    Inherited-test renegotiation (y-axis-floor 02-01, D-32): the pin's intent is
+    "the cache MOVES when a pre-cached response changes", and it moved again --
+    -v4 -> -v5 -- because the pre-cached graph.js now applies the served axis.
+    The name pinned here follows; the intent does not."""
     named = re.search(r'const SHELL_CACHE = "([^"]+)";', SERVICE_WORKER)
     assert named, "the service worker must still name its app-shell cache"
-    assert named.group(1) == "weight-tracker-shell-v4", (
-        "the app-shell cache must move to weight-tracker-shell-v4 now that the "
-        f"pre-cached `/` carries the date row, but it still names {named.group(1)!r}"
+    assert named.group(1) == "weight-tracker-shell-v5", (
+        "the app-shell cache must have moved past weight-tracker-shell-v3 (the date "
+        "row, -v4) and again past -v4 (the served axis in graph.js, -v5), but it "
+        f"still names {named.group(1)!r}"
     )
 
 

@@ -3,7 +3,11 @@
 // v4 (US-013): no new asset ships, but APP_SHELL pre-caches "/" itself and that
 // page grew a date row -- without a new name an offline open keeps being served
 // the pre-date-row entry screen out of v3.
-const SHELL_CACHE = "weight-tracker-shell-v4";
+// v5 (US-015, D-32): no new asset either, but the pre-cached graph.js changed --
+// it now applies the served axis. Fetch is network-first, so an online morning
+// is unaffected; an OFFLINE open would otherwise keep the pre-axis engine out
+// of v4 until the worker reinstalls.
+const SHELL_CACHE = "weight-tracker-shell-v5";
 const APP_SHELL = [
   "/",
   "/static/uplot.iife.min.js",
