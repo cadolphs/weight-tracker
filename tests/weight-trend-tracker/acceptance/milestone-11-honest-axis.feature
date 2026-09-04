@@ -21,7 +21,7 @@ Feature: The axis tells the truth about movement
     And today is Friday 4 September 2026
     And Clemens has unlocked the tracker with his passphrase
 
-  @pending @driving_port @US-015 @contract-shape:pure-function
+  @driving_port @US-015 @contract-shape:pure-function
   Scenario: A stalled month reads flat
     Given his weight has hovered around 77.2 kg from 1 August 2026 to 4 September 2026
     When he views the Trend lens at "1M"
@@ -29,7 +29,7 @@ Feature: The axis tells the truth about movement
     And the axis is at least two kilograms tall with every plotted point inside
     And the plotted line fills at most 10 % of the axis
 
-  @pending @driving_port @US-015 @contract-shape:pure-function
+  @driving_port @US-015 @contract-shape:pure-function
   Scenario: A real month of loss still slopes
     Given his entries fall by 0.4 kg each week from 80.0 kg between 1 July 2026 and 4 September 2026
     When he views the Trend lens at "1M"
@@ -37,7 +37,7 @@ Feature: The axis tells the truth about movement
     And the axis is centred within 0.25 kg of the data midpoint
     And the plotted line covers at least 40 % of the axis
 
-  @pending @driving_port @US-015 @contract-shape:pure-function
+  @driving_port @US-015 @contract-shape:pure-function
   Scenario: A long window keeps its ordinary range, with clean edges
     Given his entries fall by 0.2 kg each week from 82.3 kg between 6 March 2026 and 4 September 2026
     When he views the Trend lens at "6M"
@@ -88,21 +88,21 @@ Feature: The axis tells the truth about movement
     Then the axis runs from 76.0 to 78.5
     And the axis is at least two kilograms tall with every plotted point inside
 
-  @pending @driving_port @property @error @US-015 @contract-shape:pure-function
+  @driving_port @property @error @US-015 @contract-shape:pure-function
   Scenario: A perfectly steady week is a flat line, never a zero-height axis
     Given his record holds a steady 77.0 kg from 29 August 2026 to 4 September 2026
     When he views the Trend lens at "1W"
     Then the axis is exactly 2.0 kg tall, centred on 77.0
     And the axis is the honest range for what is plotted
 
-  @pending @driving_port @error @US-015 @contract-shape:pure-function
+  @driving_port @error @US-015 @contract-shape:pure-function
   Scenario: An empty window offers no axis
     Given he logged 77.2 kg on 1 July 2026
     When he views the Raw lens at "1W"
     Then the days from 29 August 2026 to 4 September 2026 show no entries
     And no axis is offered in either lens at "1W"
 
-  @pending @driving_port @error @US-015 @contract-shape:pure-function
+  @driving_port @error @US-015 @contract-shape:pure-function
   Scenario: An empty record invites, and offers no axis
     When he views the Raw lens at "1W"
     Then he is invited to log his first weight
@@ -116,7 +116,7 @@ Feature: The axis tells the truth about movement
     Then the axis runs from 75.5 to 78.5
     And the axis is the plotted range padded by a tenth each side, snapped outward to the half-kilogram grid
 
-  @pending @driving_port @property @kpi @US-015 @contract-shape:unbounded-preservation
+  @driving_port @property @kpi @US-015 @contract-shape:unbounded-preservation
   Scenario: The axis frames the line and never moves it
     Given his entries fall by 0.4 kg each week from 80.0 kg between 1 July 2026 and 4 September 2026
     When he views the Trend lens at "1M"

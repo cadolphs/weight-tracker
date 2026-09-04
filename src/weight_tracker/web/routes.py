@@ -605,14 +605,16 @@ def build_router(
         skew-bounded); event timestamps stay UTC by design. A PURE READ (ADR-009):
         the trend.view.opened emission is retired -- intent is recorded where it
         is expressed (/graph render, the study beacon), never inferred here.
-        Historical trend.view.opened rows stay on the append-only trail."""
+        Historical trend.view.opened rows stay on the append-only trail.
+        `y_range` is the honest axis over exactly these points (ADR-012)."""
         selected_scale = time_scale_or_bad_request(scale)
         day_frame = day_frame_or_bad_request(today, clock.now_utc().date())
         points = trend_series_in(store.all_entries(), selected_scale, day_frame)
         return {
             "points": [
                 {"date": point.day.isoformat(), "trend_kg": point.trend_kg} for point in points
-            ]
+            ],
+            "y_range": axis_range_wire(y_axis_range([point.trend_kg for point in points])),
         }
 
     @router.get("/graph")
