@@ -44,14 +44,14 @@ Feature: The axis tells the truth about movement
     Then the axis is the plotted range padded by a tenth each side, snapped outward to the half-kilogram grid
     And every bound is a clean multiple of half a kilogram
 
-  @pending @driving_port @US-015 @contract-shape:pure-function
+  @driving_port @US-015 @contract-shape:pure-function
   Scenario: A raw week is noise inside a band
     Given his last seven mornings read 77.0, 77.4, 76.9, 77.3, 77.1, 76.8 and 77.2 kg
     When he views the Raw lens at "1W"
     Then the axis runs from 76.0 to 78.5
     And the axis is at least two kilograms tall with every plotted point inside
 
-  @pending @driving_port @error @US-015 @contract-shape:pure-function
+  @driving_port @error @US-015 @contract-shape:pure-function
   Scenario: A missing day stays a gap beneath the honest axis
     Given he logged 77.0 kg on 29 August 2026
     And he logged 77.4 kg on 30 August 2026
@@ -73,7 +73,7 @@ Feature: The axis tells the truth about movement
     Then every axis on the tour obeys the one honest rule
     And every tap keeps its chosen lens and scale
 
-  @pending @driving_port @error @US-015 @contract-shape:pure-function
+  @driving_port @error @US-015 @contract-shape:pure-function
   Scenario: Axis bounds are clean numbers
     Given he logged 77.1 kg on 3 September 2026
     And he logged 77.4 kg on 4 September 2026
@@ -81,7 +81,7 @@ Feature: The axis tells the truth about movement
     Then the axis runs from 76.0 to 78.5
     And every bound is a clean multiple of half a kilogram
 
-  @pending @driving_port @property @error @US-015 @contract-shape:pure-function
+  @driving_port @property @error @US-015 @contract-shape:pure-function
   Scenario: A lone entry still stands on an honest axis
     Given he logged 77.2 kg on 2 September 2026
     When he views the Raw lens at "1W"
@@ -108,7 +108,7 @@ Feature: The axis tells the truth about movement
     Then he is invited to log his first weight
     And no axis is offered in either lens at "1W"
 
-  @pending @driving_port @error @US-015 @contract-shape:pure-function
+  @driving_port @error @US-015 @contract-shape:pure-function
   Scenario: Exactly two kilograms of movement is where the floor steps aside
     Given he logged 76.0 kg on 3 September 2026
     And he logged 78.0 kg on 4 September 2026

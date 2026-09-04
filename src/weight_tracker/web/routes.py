@@ -30,6 +30,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from weight_tracker.core.axis import AxisRange, y_axis_range
 from weight_tracker.core.glance import GlanceSummary, quantize_rate, rate_glyph
 from weight_tracker.core.types import (
     Entry,
@@ -327,6 +328,15 @@ def entry_wire_pair(entry: Entry) -> dict[str, Any]:
     return {"date": entry.day.isoformat(), "weight_kg": entry.weight_kg}
 
 
+def axis_range_wire(axis: AxisRange | None) -> list[float] | None:
+    """The ONE place the honest axis becomes its wire shape (ADR-012, D-31):
+    `[lo, hi]` when something is plotted, `null` when nothing is. Route-level
+    enrichment beside the series reads -- never a port widening."""
+    if axis is None:
+        return None
+    return [axis.lo_kg, axis.hi_kg]
+
+
 def recent_entries_payload(entries: Sequence[Entry]) -> list[dict[str, Any]]:
     """The save response's `recent` hand-back (D-19): the SAME newest-first
     seven-entry slice the front page renders (01-04's one slice), spoken as
@@ -583,6 +593,8 @@ def build_router(
         return {
             "entries": [entry_wire_pair(entry) for entry in shown],
             "invite_first_log": not stored,
+            # The honest axis over the exact windowed series served above (ADR-012).
+            "y_range": axis_range_wire(y_axis_range([entry.weight_kg for entry in shown])),
         }
 
     @router.get("/trend")
