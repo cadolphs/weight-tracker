@@ -457,7 +457,7 @@ at_scenario_links:
     at_tag: "@property @kpi"
     scenarios:
       - "The axis frames the line and never moves it (milestone-11-honest-axis.feature)"   # the plotted values equal the shipped pure series and reload identically; the axis is a projection beside the line, never a change to it
-      - "pure-core PBT over y_axis_range (DELIVER-owed, tests/weight-trend-tracker/acceptance/properties/) -- containment, >= 2.0, 0.5-grid, floor-band width and centre, exact ordinary-range formula, order invariance, none iff empty"
+      - "pure-core PBT over y_axis_range (landed at DELIVER 2026-09-04: tests/weight-trend-tracker/acceptance/properties/test_axis_range_properties.py, 17 tests) -- containment, >= 2.0, 0.5-grid, floor-band width and centre, exact ordinary-range formula, order invariance, none iff empty"
     note: >
       Series untouched by construction (D-27/D-32): y_range is computed FROM the windowed
       series the route already returns and rides beside it; ADR-004's constants, windowing
@@ -571,3 +571,37 @@ baselines:
       but R-2/R-3 (entries.entry_ms as a convenience column; KPI-5/KPI-7 "logging days"
       denominators counting a repair on a non-logging day) are recorded as upstream
       issues in docs/feature/entry-date-picker/feature-delta.md and NOT fixed here.
+  # Recorded at DELIVER completion of y-axis-floor (2026-09-04).
+  - kpi: KPI-9
+    status: pending-dogfood
+    evidence: >
+      7-MORNING SELF-REPORT DUE (single-user measurement_note, KPI-6 precedent): after each
+      of 7 mornings following the deploy, the ambient glance on / over the real ~77 kg
+      plateau and a deliberate 1M + 1W tap in both lenses on /graph -- "reads flat?" and
+      "any false-alarm reaction?" -- recorded in iteration notes. Target 0 false alarms /
+      100% stalled windows read flat; baseline 100% misread (the reported defect). NO
+      INSTRUMENTATION: no event, no payload change, no counter -- a render rule emits
+      nothing (ADR-009), so /stats is unmoved by construction. The arithmetic is not what
+      dogfood measures: it is pinned by the 13 milestone-11 acceptance scenarios and the
+      17-test Hypothesis property over core/axis.py (mutation gate 100% effective on
+      core/axis.py + routes.py). Dogfood measures the CONSTANTS' taste (OQ-12 = 2.0 kg,
+      OQ-14 = 0.5 kg); a false alarm or a "1M loss looks flat" retunes one line (ADR-012).
+      Live-server demo 2026-09-04 (Phase 3.5, real uvicorn on 127.0.0.1:8812 + real SQLite
+      + curl, 183-entry seed = six-month decline 82.1->77.3 then a stalled month 77.1-77.3):
+      GET /trend?scale=1M answered 30 points, span 0.185 kg, y_range [76.0, 78.5] -- the
+      Elevator Pitch's exact numbers; GET /entries?scale=1W the same band over 7 raw values;
+      GET /trend?scale=6M span 4.572 -> [76.5, 82.5]; /sw.js named weight-tracker-shell-v5;
+      /stats after the series reads showed trend_study_this_week 1 (one deliberate /graph
+      open) and home_graph_shown 1 (one GET /) -- the reads themselves added nothing.
+  - guardrail: G-3
+    status: at-verified
+    evidence: >
+      "The axis frames the line and never moves it" (milestone-11, @property @kpi) was the
+      RED gate's single GREEN-preserved scenario -- green at 14a3d14 before any axis code
+      existed and green at every step after: the plotted values equal the shipped pure
+      series and reload identically, the axis rides beside the line. The DELIVER-owed
+      pure-core PBT landed 2026-09-04 (test_axis_range_properties.py: containment, >= 2.0,
+      0.5-grid, floor-band width and centre, exact ordinary formula, order invariance,
+      none iff empty, ADR-012 constants pin, immutable value). ADR-004 constants, windowing
+      and gap handling untouched (git diff 14a3d14..472667b over core/trend.py, core/types.py:
+      empty). Hard gate live in CI on every push.
