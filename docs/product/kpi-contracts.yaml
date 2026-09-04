@@ -76,6 +76,11 @@ events:
       backdated: "true when the saved date is not the day the phone claimed as its own
         (POST /entries `today`, skew-clamped; absent/garbled claim falls back to the
         server's UTC day and NEVER refuses the save). KPI-8's instrument."
+  # --- y-axis-floor (DISTILL 2026-09-04, ADR-012) --------------------------------
+  # NO new event, NO payload change: the honest y-axis is a render rule served as an
+  # additive `y_range` on the two PURE series reads (GET /entries, GET /trend). A render
+  # emits nothing (KPI-3 purity, ADR-009): ambient front-page renders and post-save
+  # repaints still add 0 by construction; the reads stay pure (OUT-9).
 
 kpis:
   - id: KPI-1
@@ -216,6 +221,26 @@ kpis:
     dashboard: /stats "Repairs" counter (backdated_saves_this_week, same rolling week
       as its neighbours)
     alert: none-automated; weekly manual review
+
+  # --- y-axis-floor (DISTILL 2026-09-04) -----------------------------------------
+  - id: KPI-9
+    name: stalled-reads-stalled
+    type: leading
+    target: { false_alarm_reactions: 0, stalled_windows_read_flat_pct: 100, window: 7 dogfood mornings }
+    baseline: "100% of stalled windows misread as dramatic swings (the reported defect, 2026-09-04)"
+    instrument: >
+      SELF-REPORTED at dogfood (single-user measurement_note, KPI-6 precedent): after each
+      of 7 mornings, the ambient glance on / over the real ~77 kg plateau and a deliberate
+      1M + 1W tap in both lenses on /graph -- "reads flat?" and "any false-alarm reaction?".
+      NO instrumentation added: a render rule emits no telemetry (ADR-009); the rule
+      itself is pinned by the milestone-11 acceptance scenarios and DELIVER's paired
+      property test over core/axis.py, so what dogfood measures is the CONSTANT's taste
+      (OQ-12 = 2.0 kg, OQ-14 = 0.5 kg), not the arithmetic.
+    storage: none (iteration notes)
+    query: n/a
+    dashboard: iteration-close checklist item (7-morning self-report)
+    alert: none; a false alarm or a "1M loss looks flat" report retunes FLOOR_KG/GRID_KG
+      in core/axis.py (one-line change, ADR-012)
 
   - id: KPI-4
     name: subscription-cancelled
@@ -421,6 +446,36 @@ at_scenario_links:
       - "The morning flow never pays for the picker (milestone-10-dated-entry.feature)"   # date row present, readiness + focus unchanged (no focus theft, one autofocus)
     measurement_window: every push (CI)
     gate: hard
+
+  # --- DISTILL tightening (2026-09-04, feature y-axis-floor) --------------------
+  - kpi: KPI-9
+    at_tag: null
+    scenarios: []   # stalled-reads-stalled is self-reported after 7 dogfood mornings (single-user measurement_note, KPI-6 precedent); the RULE is AT-asserted below under G-3 and by every milestone-11 scenario, the CONSTANT's taste is not automatable
+    measurement_window: 7 dogfood mornings after slice 01 ships
+    gate: soft
+  - guardrail: G-3
+    at_tag: "@property @kpi"
+    scenarios:
+      - "The axis frames the line and never moves it (milestone-11-honest-axis.feature)"   # the plotted values equal the shipped pure series and reload identically; the axis is a projection beside the line, never a change to it
+      - "pure-core PBT over y_axis_range (DELIVER-owed, tests/weight-trend-tracker/acceptance/properties/) -- containment, >= 2.0, 0.5-grid, floor-band width and centre, exact ordinary-range formula, order invariance, none iff empty"
+    note: >
+      Series untouched by construction (D-27/D-32): y_range is computed FROM the windowed
+      series the route already returns and rides beside it; ADR-004's constants, windowing
+      and gap handling are not touched. Every other milestone-11 scenario asserts the axis
+      AGAINST the served values through the same read, so a drift in the series would
+      surface there too.
+    measurement_window: every push (CI)
+    gate: hard
+  - guardrail: G-2
+    at_tag: null
+    scenarios: []   # no new scenario owed: zero added fetches/scripts/taps (D-32) -- the pair rides the existing series reads; the shipped <=2 s scenarios (milestone-8/9/10) stay the gate
+    measurement_window: every push (CI)
+    gate: hard
+  - kpi: KPI-3
+    at_tag: null
+    scenarios: []   # purity unchanged and un-instrumented here: the two reads stay pure (OUT-9 scenarios); milestone-11's views/tours additionally guard the shared universe (record + frozen counters) as unchanged across every read (Mandate 8)
+    measurement_window: per rolling ISO week
+    gate: soft
 
 baselines:
   # Recorded at DELIVER completion (2026-07-23). Production not yet deployed

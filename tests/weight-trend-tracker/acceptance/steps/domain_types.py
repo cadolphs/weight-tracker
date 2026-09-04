@@ -315,3 +315,41 @@ def day_label(day: date) -> str:
     reuses it rather than forking a second calendar wording. Asserted against
     the server's own rendered rows, never trusted on its own."""
     return f"{day:%a} {day.day} {day:%b}"
+
+
+# --------------------------------------------------------------------------
+# y-axis-floor (US-015) typed vocabulary
+# --------------------------------------------------------------------------
+
+_KG_VALUE = re.compile(r"\d+(?:\.\d+)?")
+
+
+@dataclass(frozen=True)
+class AxisBand:
+    """The visible y-axis a chart is offered: [lo_kg, hi_kg] (ADR-012, D-31).
+
+    A pure value: width, centre, containment and grid-alignment are derived
+    here ONCE so every honesty assertion speaks the same arithmetic."""
+
+    lo_kg: float
+    hi_kg: float
+
+    @property
+    def width_kg(self) -> float:
+        return self.hi_kg - self.lo_kg
+
+    @property
+    def centre_kg(self) -> float:
+        return (self.lo_kg + self.hi_kg) / 2
+
+    def contains(self, value_kg: float) -> bool:
+        return self.lo_kg <= value_kg <= self.hi_kg
+
+    def on_grid(self, grid_kg: float) -> bool:
+        return all(abs(round(b / grid_kg) * grid_kg - b) < 1e-9 for b in (self.lo_kg, self.hi_kg))
+
+
+def parse_kg_list(phrase: str) -> tuple[float, ...]:
+    """'77.0, 77.4, 76.9 and 77.2' -> (77.0, 77.4, 76.9, 77.2) -- the Gherkin surface
+    for a run of mornings, oldest first."""
+    return tuple(float(token) for token in _KG_VALUE.findall(phrase))

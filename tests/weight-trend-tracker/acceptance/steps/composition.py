@@ -16,7 +16,12 @@ asserted with `assert_state_delta` over a port-exposed universe:
 HTTP surface contract (executable spec for DELIVER -- see build_app docstring):
     POST /login {passphrase}                 -> 200 + session cookie | 401 | 429 (throttled)
     GET  /entries?scale=<1W|1M|3M|6M|1Y|ALL> -> {"entries":[{"date","weight_kg"}...newest first],
-                                                 "invite_first_log": bool}
+                                                 "invite_first_log": bool,
+                                                 "y_range": [lo, hi] | null}
+                                                (y_range = the honest axis for the
+                                                 windowed raw values, ADR-012: additive,
+                                                 key ALWAYS present, null iff nothing is
+                                                 plotted; every other key byte-identical)
     POST /entries {date, weight, entry_ms?,
                    today?}                   -> {"outcome":"saved","confirmation":...,
                                                  "date","weight_kg"}
@@ -31,8 +36,11 @@ HTTP surface contract (executable spec for DELIVER -- see build_app docstring):
                                               | {"outcome":"rejected",
                                                  "reason":<RejectionReason value>,
                                                  "echo":<raw input>}   (401 when locked)
-    GET  /trend?scale=...                    -> {"points":[{"date","trend_kg"}...]}
-                                                (pure read, ADR-009 -- no event)
+    GET  /trend?scale=...                    -> {"points":[{"date","trend_kg"}...],
+                                                 "y_range": [lo, hi] | null}
+                                                (pure read, ADR-009 -- no event; y_range
+                                                 over the windowed trend values, same
+                                                 rule as /entries -- ONE rule, D7/A29)
     GET  /graph?view=trend|raw&scale=...     -> HTML with data-view=... data-scale=...
                                                 (+1 trend.study.opened per open)
     GET  /                                   -> entry screen HTML (autofocus, inputmode="decimal",
@@ -50,10 +58,13 @@ HTTP surface contract (executable spec for DELIVER -- see build_app docstring):
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import stat
 import time
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -65,6 +76,7 @@ from domain_types import (
     GARBLED_DAY_CLAIM,
     MIN_CONTRAST_RATIO,
     TEST_PASSPHRASE,
+    AxisBand,
     ColorScheme,
     ContrastClass,
     DayClaim,
@@ -85,8 +97,8 @@ from fake_clock import FakeClock
 from state_delta import assert_state_delta, set_to, unchanged
 
 from weight_tracker.composition import StartupRefused, build_app
-from weight_tracker.core.trend import trend_series
-from weight_tracker.core.types import Entry
+from weight_tracker.core.trend import trend_series, trend_series_in
+from weight_tracker.core.types import Entry, entries_in_window
 
 UNIVERSE = {
     "record.entries",
@@ -101,6 +113,9 @@ GLANCE_UNIVERSE = UNIVERSE | {"telemetry.trend_glance_shown_count"}
 
 #: /stats key for glance deliveries (grammar: `trend.view.opened` -> trend_view_opened_count).
 GLANCE_COUNT_KEY = "trend_glance_shown_count"
+
+#: Day-to-day wobble of a stalled record (US-015 seeds): +-0.1 kg around the level.
+PLATEAU_WOBBLE_KG = (0.0, 0.1, -0.1, 0.1, -0.1, 0.0, 0.1, -0.1)
 
 WRONG_PASSPHRASE = "not-the-passphrase"
 SESSION_SIGNING_KEY = "test-session-signing-key"
@@ -135,6 +150,7 @@ class TrackerComposition:
         self.history_record = HistoryRecordService(self)
         self.study = StudyService(self)
         self.dated_entry = DatedEntryService(self)
+        self.axis = AxisService(self)
 
     # -- composition root (lazy: nothing is built until first use) ----------------
 
@@ -379,6 +395,19 @@ class LoggingService(_Service):
         for offset in range((end - start).days + 1):
             day = start + timedelta(days=offset)
             self.seed(day, round(from_kg + per_week * ((day - start).days // 7 + 1), 1))
+
+    def seed_plateau(self, kg: float, start: date, end: date) -> None:
+        """A stalled stretch: the level held with the day-to-day wobble a 0.1 kg
+        scale actually shows (deterministic +-0.1 kg pattern, never a flat line,
+        so the trend has SOMETHING to smooth -- US-015's 'stalled month')."""
+        for offset in range((end - start).days + 1):
+            wobble = PLATEAU_WOBBLE_KG[offset % len(PLATEAU_WOBBLE_KG)]
+            self.seed(start + timedelta(days=offset), round(kg + wobble, 1))
+
+    def seed_mornings(self, values: Sequence[float], end: date) -> None:
+        """A run of consecutive mornings ending on `end`, oldest value first."""
+        for offset, kg in enumerate(reversed(values)):
+            self.seed(end - timedelta(days=offset), kg)
 
     def seed_timed_week(self, end: date) -> list[int]:
         """A week of real MORNINGS -- each one logged on the day it happened.
@@ -2047,4 +2076,284 @@ class DatedEntryService(_Service):
         )
         assert day.isoformat() in {shown_day for shown_day, _ in shown}, (
             f"the repaired day {day} must be part of the trend the record now tells"
+        )
+
+
+# ---------------------------------------------------------------- honest axis (y-axis-floor)
+
+#: Test-side oracle constants (ADR-012 § Range Rule, D-30). Deliberately NOT imported
+#: from `weight_tracker.core.axis`: that module is DELIVER's to build, and importing
+#: it here would turn every RED into a BROKEN. The oracle lives on the test side so
+#: the acceptance tests stay RED until production agrees with the rule.
+AXIS_FLOOR_KG = 2.0
+AXIS_GRID_KG = 0.5
+AXIS_AUTO_PAD_FRACTION = 0.1
+AXIS_SNAP_EPSILON = 1e-9
+
+#: Sentinel: the read carried no `y_range` key at all (pre-feature response).
+NO_AXIS_KEY = object()
+
+
+def expected_range(values: Sequence[float]) -> AxisBand | None:
+    """The honest axis for what is plotted (pure oracle of ADR-012 § Range Rule).
+
+    None when nothing is plotted. Below the floor: [mid - 1.0, mid + 1.0]; at or above
+    it: min/max padded by a tenth of the span each side. Both bounds then snap OUTWARD
+    to the half-kilogram grid (epsilon keeps a value within float noise of a grid line
+    on that line)."""
+    if not values:
+        return None
+    lowest, highest = min(values), max(values)
+    span = highest - lowest
+    if span < AXIS_FLOOR_KG:
+        mid = (lowest + highest) / 2
+        lo_raw, hi_raw = mid - AXIS_FLOOR_KG / 2, mid + AXIS_FLOOR_KG / 2
+    else:
+        lo_raw = lowest - AXIS_AUTO_PAD_FRACTION * span
+        hi_raw = highest + AXIS_AUTO_PAD_FRACTION * span
+    steps_per_kg = 1 / AXIS_GRID_KG
+    return AxisBand(
+        lo_kg=math.floor(steps_per_kg * lo_raw + AXIS_SNAP_EPSILON) / steps_per_kg,
+        hi_kg=math.ceil(steps_per_kg * hi_raw - AXIS_SNAP_EPSILON) / steps_per_kg,
+    )
+
+
+@dataclass(frozen=True)
+class AxisReading:
+    """One lens at one scale, as the chart engine reads it: the values it plots,
+    whatever axis the read offered, and the page whose taps chose the view."""
+
+    lens: ViewMode
+    scale: TimeScale
+    values: tuple[float, ...]
+    offered: Any  # NO_AXIS_KEY | None | the wire pair
+    response: Any
+    page_html: str
+
+    @property
+    def label(self) -> str:
+        return f"the {self.lens.value} lens at {self.scale.value}"
+
+
+class AxisService(_Service):
+    """US-015: the visible y-axis is an honest projection of what is plotted (ADR-012).
+
+    Universe = the two series reads (`/entries`, `/trend`) as the shared engine
+    fetches them for BOTH surfaces (parity by construction, ADR-008): the plotted
+    values + the offered `y_range`. Reads are pure; every view/tour additionally
+    guards the shared universe (record + frozen counters) as unchanged (Mandate 8).
+    """
+
+    def _read(self, lens: ViewMode, scale: TimeScale, page_html: str = "") -> AxisReading:
+        if lens is ViewMode.TREND:
+            response = self.comp.actor().get("/trend", params={"scale": scale.value})
+            assert response.status_code == 200, f"the trend did not answer: {response.status_code}"
+            values = tuple(point["trend_kg"] for point in response.json()["points"])
+        else:
+            response = self.comp.actor().get("/entries", params={"scale": scale.value})
+            assert response.status_code == 200, f"the record did not answer: {response.status_code}"
+            values = tuple(entry["weight_kg"] for entry in response.json()["entries"])
+        offered = response.json().get("y_range", NO_AXIS_KEY)
+        return AxisReading(lens, scale, values, offered, response, page_html)
+
+    def _open_page(self, lens: ViewMode, scale: TimeScale) -> str:
+        page = self.comp.actor().get("/graph", params={"view": lens.value, "scale": scale.value})
+        assert page.status_code == 200, f"the graph page did not open: {page.status_code}"
+        return page.text
+
+    def _guard_reads_are_pure(self, before: dict[str, Any]) -> None:
+        assert_state_delta(
+            before,
+            self.comp.capture_universe(),
+            universe=UNIVERSE,
+            expected={name: unchanged() for name in UNIVERSE},
+        )
+
+    # -- When -------------------------------------------------------------------
+
+    def view(self, lens: ViewMode, scale: TimeScale, ctx: SimpleNamespace) -> None:
+        """A lens/scale tap on the History page, then the read the engine performs."""
+        before = self.comp.capture_universe()
+        reading = self._read(lens, scale, self._open_page(lens, scale))
+        ctx.axis, ctx.response = reading, reading.response
+        if lens is ViewMode.TREND:
+            ctx.trend_scale = scale
+            ctx.trend = [(p["date"], p["trend_kg"]) for p in reading.response.json()["points"]]
+        self._guard_reads_are_pure(before)
+
+    def tour(self, ctx: SimpleNamespace) -> None:
+        """Every lens at every scale -- the closed 2 x 6 world, enumerated (falsifier-gate)."""
+        before = self.comp.capture_universe()
+        ctx.tour = tuple(
+            self._read(lens, scale, self._open_page(lens, scale))
+            for lens in ViewMode
+            for scale in TimeScale
+        )
+        self._guard_reads_are_pure(before)
+
+    # -- Then -------------------------------------------------------------------
+
+    def _band(self, reading: AxisReading) -> AxisBand:
+        assert reading.offered is not NO_AXIS_KEY, (
+            f"no axis is offered for {reading.label}: the read carries no `y_range`"
+        )
+        assert reading.offered is not None, (
+            f"{reading.label} plots {len(reading.values)} values but offers no axis (null)"
+        )
+        pair = reading.offered
+        assert (
+            isinstance(pair, list)
+            and len(pair) == 2
+            and all(isinstance(b, int | float) and math.isfinite(b) for b in pair)
+            and pair[0] < pair[1]
+        ), f"{reading.label} offers a garbled axis {pair!r}; expected [lo, hi] with lo < hi"
+        return AxisBand(lo_kg=float(pair[0]), hi_kg=float(pair[1]))
+
+    def _assert_honest(self, reading: AxisReading) -> None:
+        band = self._band(reading)
+        assert band.width_kg >= AXIS_FLOOR_KG - 1e-9, (
+            f"{reading.label}: axis {band.lo_kg}..{band.hi_kg} is only {band.width_kg} kg tall"
+        )
+        outside = [v for v in reading.values if not band.contains(v)]
+        assert not outside, f"{reading.label}: plotted values fall outside the axis: {outside}"
+        assert band.on_grid(AXIS_GRID_KG), (
+            f"{reading.label}: bounds {band.lo_kg}..{band.hi_kg} are not on the half-kilogram grid"
+        )
+        assert band == expected_range(reading.values), (
+            f"{reading.label}: axis {band.lo_kg}..{band.hi_kg} is not the honest range "
+            f"{expected_range(reading.values)} for values spanning "
+            f"{min(reading.values)}..{max(reading.values)}"
+        )
+
+    def assert_band(self, ctx: SimpleNamespace, lo_kg: float, hi_kg: float) -> None:
+        band = self._band(ctx.axis)
+        assert band == AxisBand(lo_kg, hi_kg), (
+            f"{ctx.axis.label}: axis runs {band.lo_kg}..{band.hi_kg}, expected {lo_kg}..{hi_kg}"
+        )
+
+    def assert_honest(self, ctx: SimpleNamespace) -> None:
+        self._assert_honest(ctx.axis)
+
+    def assert_floor_and_containment(self, ctx: SimpleNamespace) -> None:
+        band = self._band(ctx.axis)
+        assert band.width_kg >= AXIS_FLOOR_KG - 1e-9, f"axis is only {band.width_kg} kg tall"
+        outside = [v for v in ctx.axis.values if not band.contains(v)]
+        assert not outside, f"plotted values fall outside the axis: {outside}"
+
+    def _line_share(self, ctx: SimpleNamespace) -> float:
+        band = self._band(ctx.axis)
+        return (max(ctx.axis.values) - min(ctx.axis.values)) / band.width_kg
+
+    def assert_line_share_at_most(self, ctx: SimpleNamespace, percent: int) -> None:
+        share = self._line_share(ctx)
+        assert share <= percent / 100 + 1e-9, (
+            f"the plotted line fills {share:.0%} of the axis; a stalled window may fill "
+            f"at most {percent}%"
+        )
+
+    def assert_line_share_at_least(self, ctx: SimpleNamespace, percent: int) -> None:
+        share = self._line_share(ctx)
+        assert share >= percent / 100 - 1e-9, (
+            f"the plotted line fills only {share:.0%} of the axis; a real loss must cover "
+            f"at least {percent}%"
+        )
+
+    def assert_width_between(self, ctx: SimpleNamespace, lo_w: float, hi_w: float) -> None:
+        band = self._band(ctx.axis)
+        assert lo_w - 1e-9 <= band.width_kg <= hi_w + 1e-9, (
+            f"axis is {band.width_kg} kg tall; a floored band is {lo_w}..{hi_w} kg"
+        )
+
+    def assert_centre_within(self, ctx: SimpleNamespace, tolerance_kg: float) -> None:
+        band = self._band(ctx.axis)
+        mid = (min(ctx.axis.values) + max(ctx.axis.values)) / 2
+        assert abs(band.centre_kg - mid) <= tolerance_kg + 1e-9, (
+            f"axis centre {band.centre_kg} sits {abs(band.centre_kg - mid):.3f} kg from the "
+            f"data midpoint {mid:.3f}; allowed {tolerance_kg}"
+        )
+
+    def assert_auto_branch(self, ctx: SimpleNamespace) -> None:
+        """At or above the floor: the padded range snapped outward -- and nothing else."""
+        values = ctx.axis.values
+        span = max(values) - min(values)
+        assert span >= AXIS_FLOOR_KG, (
+            f"this window moves only {span:.3f} kg; the ordinary range applies from "
+            f"{AXIS_FLOOR_KG} kg of movement (seed shape error, not a product defect)"
+        )
+        band = self._band(ctx.axis)
+        steps_per_kg = 1 / AXIS_GRID_KG
+        lo = math.floor(steps_per_kg * (min(values) - AXIS_AUTO_PAD_FRACTION * span)) / steps_per_kg
+        hi = math.ceil(steps_per_kg * (max(values) + AXIS_AUTO_PAD_FRACTION * span)) / steps_per_kg
+        assert band == AxisBand(lo, hi), (
+            f"axis runs {band.lo_kg}..{band.hi_kg}; the ordinary range padded by a tenth "
+            f"and snapped outward is {lo}..{hi} (no floor widening)"
+        )
+
+    def assert_clean_bounds(self, ctx: SimpleNamespace) -> None:
+        band = self._band(ctx.axis)
+        for bound in (band.lo_kg, band.hi_kg):
+            assert float(bound * 2).is_integer(), f"bound {bound!r} is not a multiple of 0.5 kg"
+            assert round(bound, 1) == bound, f"bound {bound!r} carries more than one decimal"
+
+    def assert_exact_width_centred(
+        self, ctx: SimpleNamespace, width_kg: float, centre_kg: float
+    ) -> None:
+        band = self._band(ctx.axis)
+        assert abs(band.width_kg - width_kg) < 1e-9 and abs(band.centre_kg - centre_kg) < 1e-9, (
+            f"axis runs {band.lo_kg}..{band.hi_kg}; expected exactly {width_kg} kg tall "
+            f"centred on {centre_kg}"
+        )
+
+    def _assert_none(self, reading: AxisReading) -> None:
+        assert reading.offered is not NO_AXIS_KEY, (
+            f"{reading.label}: the read carries no `y_range` at all -- an empty window must "
+            f"answer null, explicitly"
+        )
+        assert reading.offered is None, (
+            f"{reading.label} plots nothing yet offers an axis {reading.offered!r}"
+        )
+
+    def assert_none_either_lens(self, scale: TimeScale) -> None:
+        for lens in ViewMode:
+            reading = self._read(lens, scale)
+            assert not reading.values, f"{reading.label} unexpectedly plots {reading.values}"
+            self._assert_none(reading)
+
+    def assert_tour_honest(self, ctx: SimpleNamespace) -> None:
+        for reading in ctx.tour:
+            self._assert_honest(reading)
+        spans = [max(r.values) - min(r.values) for r in ctx.tour if r.values]
+        assert min(spans) < AXIS_FLOOR_KG <= max(spans), (
+            "the tour must cross the floor -- some windows stalled, some moving -- "
+            f"or it proves only one branch (spans {min(spans):.2f}..{max(spans):.2f})"
+        )
+
+    def assert_tour_keeps_selection(self, ctx: SimpleNamespace) -> None:
+        for reading in ctx.tour:
+            assert f'data-view="{reading.lens.value}"' in reading.page_html, (
+                f"{reading.label}: the lens did not survive the tap"
+            )
+            assert f'data-scale="{reading.scale.value}"' in reading.page_html, (
+                f"{reading.label}: the scale did not survive the tap"
+            )
+
+    def _stored_newest_first(self) -> list[Entry]:
+        served = self.comp.observer().get("/entries", params={"scale": TimeScale.ALL.value}).json()
+        return [
+            Entry(day=date.fromisoformat(e["date"]), weight_kg=e["weight_kg"])
+            for e in served["entries"]
+        ]
+
+    def assert_series_untouched(self, ctx: SimpleNamespace) -> None:
+        """The plotted values are exactly the shipped pure series (G-3): the axis frames
+        the line, it never moves it."""
+        reading, today = ctx.axis, self.comp.device_day or self.comp.fake_clock.today()
+        stored = self._stored_newest_first()
+        if reading.lens is ViewMode.TREND:
+            expected = [round(p.trend_kg, 9) for p in trend_series_in(stored, reading.scale, today)]
+        else:
+            expected = [e.weight_kg for e in entries_in_window(stored, reading.scale, today)]
+        assert [round(v, 9) for v in reading.values] == expected, (
+            f"{reading.label}: the plotted values differ from the line the record has always "
+            f"told ({len(expected)} expected, {len(reading.values)} served)"
         )

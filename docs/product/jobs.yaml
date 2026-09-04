@@ -1,5 +1,5 @@
 schema_version: 1
-updated: "2026-07-24"
+updated: "2026-09-04"
 jobs:
   - id: track-true-weight-trend
     status: validated # problem pre-validated: the user is the sole customer (DISCOVER/DIVERGE skipped)
@@ -13,7 +13,7 @@ jobs:
         when: "I step off the scale at 06:45 with half a minute to spare before the day starts"
         i_want_to: "record today's weight with near-zero friction from my phone"
         so_i_can: "keep an unbroken daily record without the habit ever feeling like a chore"
-      - id: js-2-judge
+      - id: js-2-judge # 2026-09-04 (y-axis-floor): the auto-zoomed y-axis re-amplified the noise the trend removed (a stalled month at 77.1–77.3 kg filled the chart as swings); a minimum visible span (2.0 kg) on the shared engine, both lenses, both surfaces, keeps "stalled" reading flat — no new moment
         when: "my raw weight jumps 1.2 kg overnight after a restaurant dinner"
         i_want_to: "see a smoothed trend line that absorbs water-weight noise"
         so_i_can: "decide whether to adjust anything based on real movement, not noise"
@@ -59,4 +59,4 @@ jobs:
     opportunity_scoring: >
       Skipped per workflow rule: scoring only applies when multiple jobs compete.
       Exactly one job identified; capture/judge/maintain are moments of the same job.
-    features: [weight-trend-tracker, home-trend-display, calm-visual-theme, graph-first-home, entry-date-picker]
+    features: [weight-trend-tracker, home-trend-display, calm-visual-theme, graph-first-home, entry-date-picker, y-axis-floor]

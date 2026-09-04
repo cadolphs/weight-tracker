@@ -33,8 +33,14 @@ outcomes:
   feature: weight-trend-tracker
   inputs:
   - shape: time scale (1W|1M|3M|6M|1Y|ALL)
+  # AMENDED at DISTILL of y-axis-floor (2026-09-04, ADR-012): the read gains ONE additive,
+  # optional key -- `y_range`, the honest axis for the windowed raw values (>= 2.0 kg tall,
+  # bounds snapped outward to the 0.5 kg grid; null iff nothing is plotted). A pure
+  # projection of the same read; the port protocol is unchanged (no method added).
   output:
-    shape: raw entries newest-first within window; empty-state invite; yesterday reference
+    shape: >
+      raw entries newest-first within window; empty-state invite; yesterday reference
+      + additive `y_range: [lo, hi] | null`
   keywords:
   - weight-history
   - entries-in
@@ -50,8 +56,13 @@ outcomes:
   feature: weight-trend-tracker
   inputs:
   - shape: time scale (1W|1M|3M|6M|1Y|ALL)
+  # AMENDED at DISTILL of y-axis-floor (2026-09-04, ADR-012): same additive `y_range`
+  # as OUT-2, over the windowed trend values -- ONE rule for both lenses (D7/A29). The
+  # series itself is byte-identical (G-3); the port protocol is unchanged.
   output:
-    shape: smoothed TrendPoint series on daily calendar grid (Kalman+RTS, ADR-004), derived never stored
+    shape: >
+      smoothed TrendPoint series on daily calendar grid (Kalman+RTS, ADR-004), derived never
+      stored + additive `y_range: [lo, hi] | null`
   keywords:
   - trend-projection
   - kalman
@@ -227,3 +238,32 @@ outcomes:
   - OUT-9
   superseded_by: null
   # Registered manually at DISTILL (2026-07-24): same CLI defect as OUT-8/OUT-9.
+- id: OUT-12
+  kind: specification
+  summary: Y-axis range rule -- pure projection over the plotted values (>= 2.0 kg visible span,
+    floor widens never clips, bounds snapped outward to 0.5 kg)
+  feature: y-axis-floor
+  inputs:
+  - shape: the values a lens plots for a window (raw weight_kg of the windowed entries, or
+      trend_kg of the windowed smoothed points); gap nulls never reach the rule
+  output:
+    shape: >
+      [lo, hi] | none -- none iff nothing is plotted; span < 2.0 kg => [mid - 1.0, mid + 1.0];
+      span >= 2.0 kg => min/max padded by a tenth of the span each side (explicit formula, not
+      a chart-library replay); then both bounds snap OUTWARD to the 0.5 kg grid (epsilon-tolerant).
+      Guarantees: lo <= min, max <= hi, hi - lo >= 2.0, bounds in 0.5*Z; below the floor the band
+      is 2.0-3.0 kg wide with its centre within 0.25 kg of the data midpoint. Served as the
+      additive `y_range` on both series reads (OUT-2, OUT-3); the series is untouched (OUT-5).
+  keywords:
+  - y-axis-floor
+  - honest-axis
+  - minimum-visible-span
+  - outward-snap
+  - adr-012
+  artifact: tests/weight-trend-tracker/acceptance/milestone-11-honest-axis.feature
+  related:
+  - OUT-2
+  - OUT-3
+  - OUT-5
+  superseded_by: null
+  # Registered manually at DISTILL (2026-09-04): same CLI defect as OUT-8..OUT-11 (see header note).

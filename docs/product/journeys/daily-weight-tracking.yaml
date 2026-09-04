@@ -89,6 +89,7 @@ steps:
       - "Graph unreadable on phone viewport"
       - "Chart axes, gridlines, or series strokes illegible in the dark color scheme" # calm-visual-theme
       - "Complete entries list and plotted points disagree (both must render exactly the stored entries)" # graph-first-home
+      - "Auto-zoomed y-axis turns a week of ±0.3 kg raw jitter into a screen-filling sawtooth (same minimum visible span rule as the trend lens — 2.0 kg, shared engine, floor widens never clips)" # y-axis-floor
     gherkin: |
       Scenario: History is readable at the chosen time scale
         Given Clemens has 45 daily entries between March and July 2026
@@ -105,6 +106,9 @@ steps:
       - "Trend jumps or shows discontinuity across missing-day gaps"
       - "Trend overreacts to a single-day spike (defeats its purpose)"
       - "Trend lags so much that real change is invisible for weeks"
+      - "Auto-zoomed y-axis re-amplifies the noise the trend removed — a stalled month (≤0.2 kg wobble) reads as dramatic swings on both surfaces; the axis must guarantee a minimum visible span (2.0 kg) and widen, never clip, so stalled looks stalled and a real loss still slopes" # y-axis-floor
+      - "Single-entry or all-equal window renders a zero-height axis (same floor rule applies)" # y-axis-floor
+      - "Axis bounds/labels at awkward floats (77.42234) — bounds must sit on a 0.5 kg grid, snapped outward, on every window" # y-axis-floor
     gherkin: |
       Scenario: A restaurant-night spike is revealed as noise
         Given Clemens's trend has been stable around 82.3 kg
@@ -150,6 +154,9 @@ integration_validation:
     - artifact: "current_trend_display"
       must_match_across: [1, 3]
       failure_message: "Trend value glanced at the entry screen must equal the graph's trend line for the same entries (one smoothed series, no second algorithm)"
+    - artifact: "y_axis_floor_kg"
+      must_match_across: [1, 2, 3]
+      failure_message: "The minimum visible y-span (2.0 kg) and the 0.5 kg bound grid (both bounds snapped outward) are ONE rule with two constants applied by the shared chart engine on both surfaces (front page, History) and both lenses (Trend, Raw) at every scale — never per-surface, per-lens, or per-scale (y-axis-floor D7/D9, A25/A31)"
 
 changelog:
   - date: "2026-07-21"
@@ -170,3 +177,6 @@ changelog:
   - date: "2026-07-24"
     feature: "entry-date-picker"
     change: "Step 4 gains its mechanism (DISCUSS): the entry screen's native date field (default today, max today) IS the maintenance surface — backfill and correct ride the existing one-per-day upsert. Prefill-with-hint for stored days, no-entry hint for gaps, single hint line shared with the yesterday anchor, post-save reset to today. Failure modes added: blind overwrite, habit-typing clobber, KPI-1 sample pollution, date-row friction. today_date consumers extended (picker default + max + reset). Steps 2-3 untouched; step 1 unchanged in tap count."
+  - date: "2026-09-04"
+    feature: "y-axis-floor"
+    change: "Presentation-only delta (DISCUSS): the shared chart engine guarantees a minimum visible y-span of 2.0 kg (absolute) on both surfaces and both lenses at every scale — floor widens (data centred), never clips; above the floor the auto-range is kept. On every window both bounds then snap OUTWARD to a 0.5 kg grid (D9), so axis edges read clean (76.0 … 78.5, never 77.42234); snapping only widens. Failure modes added: step 3 (auto-zoom re-amplifying the noise the trend removed; zero-height axis on degenerate windows; awkward-float bounds), step 2 (raw jitter as screen-filling sawtooth). New integration rule y_axis_floor_kg (floor + bound grid, one rule across steps 1-3). No step action, screen, shared artifact, series, or telemetry change; step 1 unchanged in tap count."
