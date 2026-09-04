@@ -35,43 +35,45 @@ class AxisRange:
     hi_kg: float
 
 
+#: A pre-snap `(lo, hi)` pair -- the rule's working value before it earns the grid.
+_Bounds = tuple[float, float]
+
+
 def y_axis_range(values: Sequence[float]) -> AxisRange | None:
     """The honest axis for what is plotted; None when nothing is.
 
     Total over any finite float sequence, order-invariant, deterministic."""
     if not values:
         return None
-    lo_unsnapped, hi_unsnapped = _unsnapped_bounds(min(values), max(values))
-    return AxisRange(lo_kg=_snap_down(lo_unsnapped), hi_kg=_snap_up(hi_unsnapped))
+    lo_kg, hi_kg = _snap_outward(_unsnapped_bounds(min(values), max(values)))
+    return AxisRange(lo_kg=lo_kg, hi_kg=hi_kg)
 
 
-def _unsnapped_bounds(lowest: float, highest: float) -> tuple[float, float]:
+def _unsnapped_bounds(lowest: float, highest: float) -> _Bounds:
     """Floor band below FLOOR_KG of movement; the padded ordinary range at or above it."""
-    span = highest - lowest
-    if span < FLOOR_KG:
+    if highest - lowest < FLOOR_KG:
         return _floor_band(lowest, highest)
-    return _padded_range(lowest, highest, span)
+    return _padded_range(lowest, highest)
 
 
-def _floor_band(lowest: float, highest: float) -> tuple[float, float]:
+def _floor_band(lowest: float, highest: float) -> _Bounds:
     """`[mid - FLOOR_KG/2, mid + FLOOR_KG/2]` -- widen around the data, never clip."""
     mid = (lowest + highest) / 2
     return mid - FLOOR_KG / 2, mid + FLOOR_KG / 2
 
 
-def _padded_range(lowest: float, highest: float, span: float) -> tuple[float, float]:
+def _padded_range(lowest: float, highest: float) -> _Bounds:
     """`[min - pad, max + pad]` with `pad = AUTO_PAD_FRACTION * span` (explicit, D-28)."""
-    pad = AUTO_PAD_FRACTION * span
+    pad = AUTO_PAD_FRACTION * (highest - lowest)
     return lowest - pad, highest + pad
 
 
-def _snap_down(bound: float) -> float:
-    """Largest grid line at or below the bound (eps keeps a near-grid value on its line)."""
-    steps_per_kg = 1 / GRID_KG
-    return math.floor(steps_per_kg * bound + SNAP_EPSILON) / steps_per_kg
-
-
-def _snap_up(bound: float) -> float:
-    """Smallest grid line at or above the bound (eps keeps a near-grid value on its line)."""
-    steps_per_kg = 1 / GRID_KG
-    return math.ceil(steps_per_kg * bound - SNAP_EPSILON) / steps_per_kg
+def _snap_outward(bounds: _Bounds) -> _Bounds:
+    """Each bound to its nearest grid line AWAY from the data: lo down, hi up
+    (eps keeps a value within float noise of a grid line on that line)."""
+    lo, hi = bounds
+    lines_per_kg = 1 / GRID_KG
+    return (
+        math.floor(lines_per_kg * lo + SNAP_EPSILON) / lines_per_kg,
+        math.ceil(lines_per_kg * hi - SNAP_EPSILON) / lines_per_kg,
+    )

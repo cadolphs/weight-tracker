@@ -40,12 +40,22 @@ pytestmark = [pytest.mark.property, pytest.mark.us_015]
 SNAP_EPSILON = 1e-9
 CENTRE_TOLERANCE_KG = 0.25
 
+MAX_PLOTTED = 60
+
 raw_kg = st.integers(min_value=300, max_value=2500).map(lambda i: i / 10)  # 0.1-precise
 trend_kg = st.floats(min_value=30.0, max_value=250.0, allow_nan=False, allow_infinity=False)
-plotted = st.one_of(st.lists(raw_kg, max_size=60), st.lists(trend_kg, max_size=60))
-plotted_non_empty = st.one_of(
-    st.lists(raw_kg, min_size=1, max_size=60), st.lists(trend_kg, min_size=1, max_size=60)
-)
+
+
+def plotted_values(min_size: int) -> st.SearchStrategy[list[float]]:
+    """What either lens plots: a raw window (0.1-precise) or a trend window (any float)."""
+    return st.one_of(
+        st.lists(raw_kg, min_size=min_size, max_size=MAX_PLOTTED),
+        st.lists(trend_kg, min_size=min_size, max_size=MAX_PLOTTED),
+    )
+
+
+plotted = plotted_values(min_size=0)
+plotted_non_empty = plotted_values(min_size=1)
 
 PINNED_ROWS = [
     ([77.1, 77.3], AxisRange(76.0, 78.5)),  # 1: 1M trend plateau
