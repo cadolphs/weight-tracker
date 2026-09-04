@@ -11,6 +11,7 @@ AUTO_PAD_FRACTION = 0.1 and the snap epsilon 1e-9:
   * below the floor: width in [2.0, 3.0], centre within 0.25 kg of the data midpoint
   * at or above the floor: exactly the padded range snapped outward
   * order invariance and determinism over any finite float sequence
+  * the axis is a VALUE: hashable, equal by bounds, and immutable once offered
 
 Pinned rows 1-8 (feature-delta § Range Rule) include the branch boundary (span
 exactly 2.0 is ordinary) and the epsilon case (three x 77.0 stays on the grid).
@@ -21,6 +22,7 @@ exactly 2.0 is ordinary) and the epsilon case (three x 77.0 stays on the grid).
 
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import pytest
@@ -154,3 +156,15 @@ def test_the_order_of_the_values_never_changes_the_axis(values, seed):
     seed.shuffle(shuffled)
     assert y_axis_range(shuffled) == y_axis_range(values)
     assert y_axis_range(values) == y_axis_range(values)
+
+
+@given(values=plotted_non_empty)
+@settings(max_examples=50, deadline=None)
+def test_the_axis_is_an_immutable_value(values):
+    """An offered axis is a value object: two equal reads hash alike, and no
+    caller can move a bound after the fact (frozen core, ADR-005)."""
+    axis = y_axis_range(values)
+    assert axis is not None
+    assert hash(axis) == hash(y_axis_range(values))
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        axis.lo_kg = axis.lo_kg - GRID_KG
