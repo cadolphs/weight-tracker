@@ -41,10 +41,14 @@ Never restore directly over the live file first. Restore to scratch, verify, the
 
 ```sh
 fly ssh console
-litestream restore -o /data/restore-check.db \
-  [-timestamp <ISO8601-just-before-corruption>] <replica-url-from-litestream.yml>
-sqlite3 /data/restore-check.db "PRAGMA integrity_check;"      # expect: ok
-sqlite3 /data/restore-check.db "SELECT COUNT(*), MAX(date) FROM entries;"  # sanity: plausible count + latest date
+# Always the -config form: the bare replica URL does not work for R2 on Litestream 0.3.13
+# (no endpoint => AWS lookup). R2_BUCKET/R2_ENDPOINT/R2_PATH are exported by entrypoint.sh;
+# in a fresh shell re-derive them from $REPLICA_URL the same way (see Dockerfile).
+litestream restore -config /etc/litestream.yml -o /data/restore-check.db \
+  [-timestamp <ISO8601-just-before-corruption>] /data/weight.db
+# no sqlite3 binary in the image — use Python's module:
+python3 -c "import sqlite3; c=sqlite3.connect('/data/restore-check.db'); print(c.execute('PRAGMA integrity_check').fetchone()); print(c.execute('SELECT COUNT(*), MAX(logged_at) FROM entries').fetchone())"
+# expect: ('ok',) then a plausible count + latest timestamp
 ```
 
 Swap (brief downtime, acceptable):

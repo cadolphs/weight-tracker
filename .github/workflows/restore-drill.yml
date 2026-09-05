@@ -47,10 +47,39 @@ jobs:
             echo "found=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: derive R2 bucket/endpoint from REPLICA_URL (litestream 0.3.13 has no R2 host rule)
+        # s3.ParseHost in 0.3.13 only knows AWS/B2/Filebase/DO/Scaleway/Linode hosts; an R2 host
+        # falls through to bucket=<whole host>, endpoint="" and the region lookup hits AWS
+        # (InvalidAccessKeyId). The config form with an explicit endpoint is the only way.
+        run: |
+          host="${REPLICA_URL#s3://}"; host="${host%%/*}"
+          rpath="${REPLICA_URL#s3://"$host"}"; rpath="${rpath#/}"
+          bucket="${host%%.*}"
+          endpoint="https://${host#*.}"
+          for v in "$bucket" "$endpoint" "$rpath"; do [ -n "$v" ] && echo "::add-mask::$v"; done
+          echo "scheme_s3=$([[ "$REPLICA_URL" == s3://* ]] && echo yes || echo no) host_dots=$(tr -cd . <<<"$host" | wc -c | tr -d ' ') r2_host=$([[ "$host" == *.r2.cloudflarestorage.com ]] && echo yes || echo no) path_len=${#rpath}"
+          [[ "$REPLICA_URL" == s3://* && "$host" == *.r2.cloudflarestorage.com && -n "$bucket" ]] \
+            || { echo "::error::REPLICA_URL is not s3://<bucket>.<account>.r2.cloudflarestorage.com[/<path>]"; exit 1; }
+          {
+            echo "R2_BUCKET=$bucket"
+            echo "R2_ENDPOINT=$endpoint"
+            echo "R2_PATH=$rpath"
+          } >> "$GITHUB_ENV"
+          cat > drill.yml <<'YML'
+          dbs:
+            - path: /drill/weight.db
+              replicas:
+                - type: s3
+                  bucket: ${R2_BUCKET}
+                  path: ${R2_PATH}
+                  endpoint: ${R2_ENDPOINT}
+                  region: auto
+          YML
+
       - name: restore latest generation to scratch
         run: |
           mkdir -p scratch
-          litestream restore -o scratch/weight.db "$REPLICA_URL"
+          litestream restore -config drill.yml -o scratch/weight.db /drill/weight.db
 
       - name: integrity check + row-count sanity
         run: |
@@ -85,7 +114,7 @@ jobs:
         run: |
           pitr_ts="$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)"
           mkdir -p scratch-pitr
-          litestream restore -timestamp "$pitr_ts" -o scratch-pitr/weight.db "$REPLICA_URL"
+          litestream restore -config drill.yml -timestamp "$pitr_ts" -o scratch-pitr/weight.db /drill/weight.db
           result="$(sqlite3 scratch-pitr/weight.db 'PRAGMA integrity_check;')"
           test "$result" = "ok" || { echo "::error::PITR integrity_check: $result"; exit 1; }
           echo "PITR restore to $pitr_ts verified"
