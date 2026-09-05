@@ -56,9 +56,10 @@ jobs:
           rpath="${REPLICA_URL#s3://"$host"}"; rpath="${rpath#/}"
           bucket="${host%%.*}"
           endpoint="https://${host#*.}"
-          for v in "$bucket" "$endpoint" "$rpath"; do echo "::add-mask::$v"; done
-          test -n "$bucket" -a -n "$rpath" -a "$host" != "$bucket" || { echo "::error::REPLICA_URL is not s3://<bucket>.<account>.r2.cloudflarestorage.com/<path>"; exit 1; }
-          echo "replica host has $(tr -cd . <<<"$host" | wc -c) dots; bucket/endpoint/path derived"
+          for v in "$bucket" "$endpoint" "$rpath"; do [ -n "$v" ] && echo "::add-mask::$v"; done
+          echo "scheme_s3=$([[ "$REPLICA_URL" == s3://* ]] && echo yes || echo no) host_dots=$(tr -cd . <<<"$host" | wc -c | tr -d ' ') r2_host=$([[ "$host" == *.r2.cloudflarestorage.com ]] && echo yes || echo no) path_len=${#rpath}"
+          [[ "$REPLICA_URL" == s3://* && "$host" == *.r2.cloudflarestorage.com && -n "$bucket" ]] \
+            || { echo "::error::REPLICA_URL is not s3://<bucket>.<account>.r2.cloudflarestorage.com[/<path>]"; exit 1; }
           {
             echo "R2_BUCKET=$bucket"
             echo "R2_ENDPOINT=$endpoint"
