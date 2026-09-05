@@ -18,14 +18,47 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --frozen --no-dev
 
-# Litestream replica config. No secrets baked in: REPLICA_URL (s3://<bucket>.<account>.r2.
-# cloudflarestorage.com/<path>) plus LITESTREAM_ACCESS_KEY_ID / LITESTREAM_SECRET_ACCESS_KEY
-# arrive as Fly secrets at runtime (secret-setup.md) and are expanded by Litestream.
+# Litestream replica config. No secrets baked in: REPLICA_URL
+# (s3://<bucket>.<account>.r2.cloudflarestorage.com[/<path>]) plus LITESTREAM_ACCESS_KEY_ID /
+# LITESTREAM_SECRET_ACCESS_KEY arrive as Fly secrets at runtime (secret-setup.md).
+#
+# Litestream 0.3.13 cannot take an R2 replica as a bare `url:` — its host parser has no
+# rule for *.r2.cloudflarestorage.com, so it treats the whole host as an AWS bucket name and
+# fails every sync with "cannot lookup bucket region" (2026-09-05 evolution note). The
+# entrypoint derives bucket / endpoint / path from REPLICA_URL and the config names them
+# explicitly. Region "auto" is what R2 expects for SigV4.
 COPY <<'EOF' /etc/litestream.yml
 dbs:
   - path: /data/weight.db
     replicas:
-      - url: ${REPLICA_URL}
+      - type: s3
+        bucket: ${R2_BUCKET}
+        path: "${R2_PATH}"
+        endpoint: ${R2_ENDPOINT}
+        region: auto
+EOF
+
+COPY --chmod=755 <<'EOF' /usr/local/bin/entrypoint.sh
+#!/bin/sh
+# Derive R2_BUCKET / R2_ENDPOINT / R2_PATH from REPLICA_URL, then exec Litestream as PID 1.
+# A missing or malformed REPLICA_URL is fatal on purpose: silently running without an
+# off-host replica is the failure this guards against (durability guardrail G-1).
+set -eu
+case "${REPLICA_URL:-}" in
+  s3://*) ;;
+  *) echo 'startup.refused: REPLICA_URL must be s3://<bucket>.<account>.r2.cloudflarestorage.com[/<path>]' >&2; exit 1 ;;
+esac
+rest="${REPLICA_URL#s3://}"
+host="${rest%%/*}"
+case "$rest" in */*) rpath="${rest#*/}" ;; *) rpath="" ;; esac
+bucket="${host%%.*}"
+endpoint="https://${host#*.}"
+case "$host" in
+  *.r2.cloudflarestorage.com) ;;
+  *) echo "startup.refused: REPLICA_URL host is not an R2 host" >&2; exit 1 ;;
+esac
+export R2_BUCKET="$bucket" R2_ENDPOINT="$endpoint" R2_PATH="$rpath"
+exec litestream replicate -exec "uvicorn weight_tracker.main:app --host 0.0.0.0 --port 8080"
 EOF
 
 ENV PATH="/app/.venv/bin:$PATH" \
@@ -37,4 +70,4 @@ ENV PATH="/app/.venv/bin:$PATH" \
 VOLUME ["/data"]
 EXPOSE 8080
 
-CMD ["litestream", "replicate", "-exec", "uvicorn weight_tracker.main:app --host 0.0.0.0 --port 8080"]
+CMD ["/usr/local/bin/entrypoint.sh"]
