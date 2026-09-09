@@ -242,6 +242,29 @@ kpis:
     alert: none; a false alarm or a "1M loss looks flat" report retunes FLOOR_KG/GRID_KG
       in core/axis.py (one-line change, ADR-012)
 
+  - id: KPI-10
+    name: trend-readable-as-numbers
+    type: leading
+    target: { answered_from_a_list_pct: 100, seconds_to_answer: 10, chart_fallbacks: 0, window: 7 dogfood mornings }
+    baseline: "impossible -- exactly one trend value (today's, on the glance line) exists as a number anywhere in the product (2026-09-09)"
+    instrument: >
+      SELF-REPORTED at dogfood (single-user measurement_note, KPI-6/KPI-9 precedent): on
+      each of 7 mornings, answer "how much has my trend moved over the last week?" from the
+      front page's list alone, and once over the run answer the same for a month from the
+      History table -- recorded as answered/not, seconds, and whether the chart was opened.
+      NO instrumentation added: rendering a list emits no telemetry (ADR-009), so /stats is
+      unmoved by construction. The VALUES are pinned by the 12 milestone-12 acceptance
+      scenarios (oracled against GET /trend, so the list and the chart cannot disagree) and
+      by two pure-core property suites; what dogfood measures is whether numbers actually
+      beat the picture for this question, and whether TREND_DECIMALS = 2 is the right
+      resolution (OQ-15, retuned once already at DELIVER on exactly this evidence).
+    storage: none (iteration notes)
+    query: n/a
+    dashboard: iteration-close checklist item (7-morning self-report)
+    alert: none; a morning that still ends in a tap through to /graph, or a week of rows
+      that still reads frozen, retunes TREND_DECIMALS in web/routes.py (one-line change,
+      ADR-013) or reopens the question of what the column should carry
+
   - id: KPI-4
     name: subscription-cancelled
     type: lagging
@@ -453,6 +476,11 @@ at_scenario_links:
     scenarios: []   # stalled-reads-stalled is self-reported after 7 dogfood mornings (single-user measurement_note, KPI-6 precedent); the RULE is AT-asserted below under G-3 and by every milestone-11 scenario, the CONSTANT's taste is not automatable
     measurement_window: 7 dogfood mornings after slice 01 ships
     gate: soft
+  - kpi: KPI-10
+    at_tag: null
+    scenarios: []   # trend-readable-as-numbers is self-reported after 7 dogfood mornings (single-user measurement_note, KPI-6/KPI-9 precedent); the VALUES are AT-asserted by every milestone-12 scenario against the chart's own /trend read, but whether a number beats a picture for this question is not automatable
+    measurement_window: 7 dogfood mornings after slice 01 ships
+    gate: soft
   - guardrail: G-3
     at_tag: "@property @kpi"
     scenarios:
@@ -593,6 +621,26 @@ baselines:
       GET /trend?scale=6M span 4.572 -> [76.5, 82.5]; /sw.js named weight-tracker-shell-v5;
       /stats after the series reads showed trend_study_this_week 1 (one deliberate /graph
       open) and home_graph_shown 1 (one GET /) -- the reads themselves added nothing.
+  # Recorded at DELIVER completion of numeric-trend-history (2026-09-09).
+  - kpi: KPI-10
+    status: pending-dogfood
+    evidence: >
+      7-MORNING SELF-REPORT DUE (single-user measurement_note, KPI-6/KPI-9 precedent):
+      on each of 7 mornings after the deploy, answer "how much has my trend moved over the
+      last week?" from the front page's list alone -- answered/not, seconds, chart opened
+      or not -- and once over the run answer the same for a month from the History table.
+      Target 100% answered from a list within 10 s with 0 chart fallbacks; baseline
+      impossible (one trend number existed in the whole product). NO INSTRUMENTATION: no
+      event, no payload change, no counter -- rendering a list emits nothing (ADR-009), so
+      /stats is unmoved by construction. The VALUES are pinned by the 12 milestone-12
+      scenarios, every one oracled against GET /trend at ALL so the list and the chart
+      cannot disagree, plus 12 row properties and 7 projection properties (mutation gate
+      100% effective, raw 20/31 with eleven provably-equivalent annotation mutants).
+      OQ-15 was already retuned on this evidence during DELIVER: at the pinned 0.1 kg a
+      month declining ~0.04 kg/day printed 77.5 in all seven front-page rows while the
+      curve visibly sloped, so the trend column ships at 0.01 kg (77.53 -> 77.48) and the
+      raw column stays at 0.1 kg. What dogfood now measures is whether the numbers beat
+      the picture for the question, and whether two decimals is the right resolution.
   - guardrail: G-3
     status: at-verified
     evidence: >

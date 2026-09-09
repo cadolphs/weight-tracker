@@ -23,6 +23,7 @@ DISTILL-pinned contract, as properties:
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from datetime import date
 
@@ -194,6 +195,19 @@ def test_an_empty_mapping_costs_only_the_trend_column(entries):
     full = recent_entry_rows(entries, {e.day: 77.0 for e in entries})
     assert [row.trend_text for row in rows] == [""] * len(rows)
     assert [(r.day_text, r.raw_text) for r in rows] == [(f.day_text, f.raw_text) for f in full]
+
+
+@given(day=days, kg=weights, trend=smoothed_weights)
+@settings(max_examples=25, deadline=None)
+def test_a_rendered_row_cannot_be_edited_after_the_fact(day, kg, trend):
+    """Rows are FROZEN (ADR-005 / CLAUDE.md: pure functions over frozen
+    dataclasses). Three renderers share one row definition, and two of them hand
+    their rows straight to a template; a row that could be rewritten in place
+    between building and rendering is how the front page and the History page
+    would start telling different stories about the same day."""
+    row = entry_row(day, kg, trend)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        row.trend_text = "77.00"
 
 
 def test_an_empty_record_yields_no_rows():

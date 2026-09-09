@@ -360,3 +360,89 @@ DISCUSS Pre-Requisites (a) offered two wire shapes and asked DESIGN to pin one. 
 > Adding `trend_kg` there gives the lists one source and keeps the two surfaces in step, but it also puts a trend number on the raw-lens endpoint, where the chart does not need it. The alternative — enriching only the save's hand-back — keeps `GET /entries` pure but creates a second place a row's trend can come from.
 
 **New assumption (A40)**: the second horn does not bite. There is no second place a row's trend comes from, because both the server render and the save's hand-back read the **same `trend_by_day` mapping** for the same request and hand it to the **same row builder** (D-35); the wire carries a number the client formats through the same grammar, and never a second lookup. `GET /entries` therefore stays a pure windowed filter (D-37), and the single-source guarantee D-18 protects is preserved by the mapping rather than by the wire shape.
+
+## Wave: DISTILL
+
+Acceptance designer, 2026-09-09. Reconciliation gate: all prior wave decisions read (DISCUSS D1–D12 / A32–A39 / OQ-15–17 and the seven UAT scenarios; DESIGN D-32–D-41 + ADR-013 + § Reuse Analysis + § Changed Assumptions; no DEVOPS wave — brownfield on the shipped pipeline, WARN logged, default matrix) — **0 contradictions**. DESIGN's refutation of Pre-Requisite (a)'s second horn (A40: both renderers read one mapping in one request, so the wire shape is free to keep `GET /entries` pure) keeps every observable DISCUSS promise. Deliverable type: `application` ⇒ no plugin/skill reviewer routing. Infrastructure policy: `--policy=inherit` — this feature adds **no port and no adapter**, so zero rows are missing; the Architecture of Reference is unchanged (driving = `TestClient` over `build_app`, driven-internal = real SQLite on `tmp_path`, driven-external = `FakeClock` only). Density: lean, Tier-1 `[REF]` only; density telemetry skipped (`scripts/shared/telemetry.py` absent).
+
+### [REF] Scenario List
+
+Scenario SSOT: `tests/weight-trend-tracker/acceptance/milestone-12-trend-in-the-record.feature` (Slice 01 — US-016). **12 scenarios / 12 executions**. Error/edge share **5/12 ≈ 42 %**.
+
+| Scenario | Tags |
+|---|---|
+| A noisy week reads as a steady trend, in numbers | `@driving_port @US-016 @contract-shape:pure-function` |
+| The newest row and the glance line agree | `@driving_port @US-016 @contract-shape:pure-function` |
+| The whole record carries the column at every scale | `@driving_port @property @US-016 @contract-shape:pure-function` |
+| Missing days are absent, not empty rows | `@driving_port @error @US-016 @contract-shape:pure-function` |
+| A backfilled day revises the rows above it, in place | `@driving_port @US-016 @contract-shape:bounded-change` |
+| A failing trend leaves the raw record standing | `@driving_port @error @US-016 @contract-shape:pure-function` |
+| A first morning stands on its own trend | `@driving_port @error @US-016 @contract-shape:pure-function` |
+| An empty record shows no table at all | `@driving_port @error @US-016 @contract-shape:pure-function` |
+| Both lists speak one grammar | `@driving_port @property @US-016 @contract-shape:pure-function` |
+| The columns are announced, not merely aligned | `@driving_port @US-016 @contract-shape:pure-function` |
+| Looking is still not touching | `@driving_port @US-016 @contract-shape:pure-function` |
+| The second column costs nothing at the door | `@driving_port @kpi @US-016 @contract-shape:unbounded-preservation` |
+
+**The oracle is the chart's own endpoint.** Every expected trend value is re-derived from `GET /trend` at `ALL` and compared cell by cell. That is what makes A36 a claim rather than a tautology: a second algorithm, a second rounding path, or a windowed re-smoothing on either surface fails at this assertion instead of in a comment. The two `@property` scenarios are layer-3 (real HTTP + real SQLite) ⇒ **example-pinned**, per Mandate 9/11; the lens × scale Cartesian (2 × 6) is a closed, listable world and is **enumerated** by the unwindowed-record tour rather than generated.
+
+Two pure-core PBT modules pair the ATs (ADR-025 split — DISTILL owns ATs, DELIVER owns the paired PBT): `properties/test_trend_by_day_properties.py` (7 properties over the new core projection) and the rewritten `properties/test_recent_list_properties.py` (12 properties over the row definition and the slice, including the positional-zip falsifier and the frozen-row guard added to close a mutant).
+
+AT-completeness audit (`nw-at-completeness-check`, 15 items): **15/15 — COMPLETE**. Asserted: C1a (empty record, both surfaces; single entry), C1b (the seven-entry slice boundary; a first morning; a gap-bounded record), C2a (documented in `steps_trend_rows.py`: EMPTY → TABLE → RAW-ONLY under degrade, plus backfill and lens/scale events), C3 (0/1/many), C4a (identical reloads of a pure read; the unwindowed tour re-reads twelve times), C5a+C5b (the lens × scale tour; the record invariant, selection preserved), C6b (empty trend cells, never a zero or a stand-in), C6c (the closed row shape — three cells, no half rows). Not applicable with rationale: C2b/C4b (no inverse op — read-only projection), C6a (the column takes no user input), C7a/b/c (pure arithmetic inside an already-served atomic read; store failure is pinned by the shipped "series read admits trouble"). Zero `SPECIFICATION_AMBIGUITY` findings; audit log: `(numeric-trend-history, C1–C7, 0 findings, none)`.
+
+### [REF] Inherited-Test Renegotiation
+
+The single-string row grammar retires with D6/D-35, which moves five shipped assertions. Each is an **intended AC delta**, renegotiated in the open rather than silently rewritten, and each fails loudly if the intent is broken:
+
+| Shipped assertion | Was | Now | Why it is a delta, not a break |
+|---|---|---|---|
+| `composition.py` `RECENT_LIST_BLOCK` / `HISTORY_LIST_BLOCK` / `LIST_ROW` | `<ul>` of `"Fri 24 Jul — 82.2 kg"` `<li>`s | `<table>` on the same two ids; rows parsed as three cells into a `Row` NamedTuple | D6 changed what a row *is*. The ids are deliberately unchanged so every other hook still points at the same element |
+| `properties/test_recent_list_properties.py` `ROW_GRAMMAR` + golden row | one regex, one decimal | `DAY_CELL` / `RAW_CELL` / `TREND_CELL`, two precisions | the grammar is the thing under change; the module was rewritten around the new one, not deleted |
+| `properties/test_entry_hint_wiring.py` day-grammar grep | source of `entryRowText` | source of `entryRowCells`, whose first cell is `dayLabel(` | the intent ("the hint and the rows cannot fork into two calendar wordings") is preserved verbatim; only the function it reads changed |
+| `properties/test_save_recent_properties.py` hand-back equality | pair `==` `{date, weight_kg}` | pair minus `trend_kg` `==` `{date, weight_kg}`, **plus** a new assertion that `GET /entries` carries no `trend_kg` | the additive key is D-37; the new assertion is what makes "the raw read stays untouched" falsifiable rather than asserted in prose |
+| `test_axis_engine_wiring.py` + `test_date_row_dress.py` `SHELL_CACHE` pins | `-v5` | `-v6` | the pins' stated intent is "the cache MOVES when a pre-cached response changes"; `/` changed, so it moved (D-40) |
+
+**Guarded against**: `Saved.confirmation` and the entry hint line are **byte-identical** to pre-feature, despite both now calling the extracted `core/types.py: day_label`. That is the explicit DoD guard DISCUSS Pre-Requisite (b) asked for.
+
+**Deliberately not asserted (client-structural, dogfood-verified — the client-paint precedent D-15):** the in-browser repaint building `<tr>`/`<td>` from the hand-back, the rebuilt header on a first morning's save, `font-variant-numeric: tabular-nums` producing visually aligned decimal points, no-wrap at a 360 px viewport, and the `sw.js -v6` bump taking effect. A browser-less suite cannot falsify what a script paints or what a font does; the markup, the headings, the theme rules and the cache name are pinned textually, and the pixels are owed to dogfood.
+
+## Wave: DELIVER
+
+Functional software crafter, 2026-09-09. Slice 01 shipped in two commits (`95794e0` waves 1–3, `a38e8fa` implementation). Suite: **278 passed** (255 before, +23). Static gates all green: `ruff check`, `ruff format --check`, `mypy --strict` on `src/`, `lint-imports` (functional-core contract kept), the AST probe-presence gate. Mutation: **effective 20/20 = 100 %**, raw 20/31 — report at `deliver/mutation/mutation-report.md`.
+
+### [REF] What Shipped
+
+- **`core/trend.py: trend_by_day(entries) -> dict[date, float]`** — the shipped series keyed by day, total over the record by construction (D-32/A32).
+- **`core/types.py: day_label(day)`** — the `"Fri 24 Jul"` wording, now with one definition; `Saved.confirmation` calls it and its output is byte-identical (D-36).
+- **`web/routes.py`** — frozen `EntryRow` + `entry_row` at two named precisions; `entry_rows` / `recent_entry_rows` / `complete_record_rows` over the mapping; `trend_by_day_or_degrade` (returns `{}`, logs `trend.rows.degraded`); `ENTRY_COLUMN_HEADINGS`; `recent_entries_payload` carrying the additive `trend_kg`; `entry_row_text` retired (D-34/D-35/D-37).
+- **`composition.py`** — `trend_by_day` wired as the third read-only projection (D-33).
+- **`index.html` / `graph.html`** — both lists rendered as semantic tables on their existing ids; the client repaint builds rows of cells and rebuilds the header when the table did not exist (D-38).
+- **`theme.css`** — the two `li` rules became `th`/`td` rules on the same selectors, numeric columns right-aligned on tabular figures (D-39). **`sw.js`** — `SHELL_CACHE` `-v5` → `-v6` (D-40).
+- **Untouched, as designed**: `ports.py`, `entry_store.py` and the schema, `graph.js`, `GET /entries`, `GET /trend`, `/stats`, `/healthz`, the beacon, every event name, every driven adapter and probe.
+
+### [REF] Changed Assumptions
+
+**A35 (rendered precision) was retuned by the first real render.** DISCUSS D10 pinned both columns at 0.1 kg, and named its own falsifier in OQ-15: *"if a week of rows reads as an identical number seven times while the curve visibly slopes, the default is wrong."* Original text (§ Locked Decisions, D10):
+
+> **Trend renders at 0.1 kg, like every other weight on the screen.** One decimal, matching the glance line (`Trend: 77.2 kg`), the raw column, the confirmation and the hint.
+
+It fired immediately. Over a month declining ~0.04 kg/day, the smoothed trend moves ~0.05 kg across the front page's seven rows, so every row printed `77.5` and the column read frozen:
+
+| Date | Raw (kg) | Trend at 0.1 | Trend at 0.01 |
+|---|---|---|---|
+| Wed 9 Sep | 77.3 | 77.5 | 77.48 |
+| Tue 8 Sep | 77.3 | 77.5 | 77.48 |
+| Mon 7 Sep | 77.0 | 77.5 | 77.49 |
+| Sun 6 Sep | 77.6 | 77.5 | 77.50 |
+| Sat 5 Sep | 77.2 | 77.5 | 77.50 |
+| Fri 4 Sep | 77.1 | 77.5 | 77.52 |
+| Thu 3 Sep | 77.1 | 77.5 | 77.53 |
+
+**New assumption (A35, revised)**: the columns render at **different** precisions on purpose — raw at 0.1 kg, trend at 0.01 kg. The asymmetry is the honest one, not the inconsistent one: the scale measured the raw weight to a tenth and never measured a hundredth, so a second raw digit would be invented; the trend is *derived* and has real resolution below 0.1. The glance line keeps its ADR-006 single decimal and states the same value, which is why A36 was sharpened at the same time: every rendering is checked against the **series**, never against another rendering, so a re-rounding of an already-rounded number cannot pass by looking self-consistent. Two named constants, `RAW_DECIMALS` / `TREND_DECIMALS`, in one place. **OQ-15 closed.**
+
+### [REF] Open Questions Carried Forward
+
+- **OQ-16** front-page list depth — ships at 7 (A18 unchanged); the column added information per row without adding rows.
+- **OQ-17** a scroll container or "show older" on the History table — still **no**; the page scrolls and the rows stayed lean (A39).
+- **OQ-19** (DESIGN) collapsing `recent_entry_rows` and `complete_record_rows` — **not taken**. With both now delegating to `entry_rows`, the two names carry only a slice and are two lines each; they remain the vocabulary the acceptance tests and the templates speak. Merging them would trade a named surface for two saved lines.
+- **Owed to dogfood** (D-15 client-paint precedent): the in-browser repaint's `<tr>`/`<td>`, the rebuilt header after a first morning's save, decimal alignment under `tabular-nums`, no wrap at 360 px, and the `-v6` cache bump taking effect on the phone.

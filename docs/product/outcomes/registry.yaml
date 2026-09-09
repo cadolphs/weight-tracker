@@ -267,3 +267,35 @@ outcomes:
   - OUT-5
   superseded_by: null
   # Registered manually at DISTILL (2026-09-04): same CLI defect as OUT-8..OUT-11 (see header note).
+- id: OUT-13
+  kind: operation
+  summary: Entry-row trend delivery -- each entries-list row carries its own smoothed
+    trend beside its raw weight
+  feature: numeric-trend-history
+  inputs:
+  - shape: an entry-screen render (GET /), a History-page render (GET /graph), or a
+      save's `recent` hand-back (POST /entries) over any record
+  output:
+    shape: >
+      one row per ENTRY, newest first, as three cells -- the day in the record's own
+      wording, the raw weight at 0.1 kg (the scale's precision), the smoothed trend at
+      0.01 kg (derived, and too slow to read at one decimal) -- from ONE row definition
+      shared by both server surfaces and the client repaint; the trend value is the
+      full-record smoothed series (ADR-004) read at that row's day, so a given day reads
+      one value across the glance line, both lists and the chart; a failing projection
+      empties the trend cells and costs the row nothing else; gap days produce no row;
+      the History table is never windowed by the chart scale; `trend_kg` rides additively
+      on the save's `recent` pairs ONLY -- GET /entries stays the raw lens's untouched read
+  keywords:
+  - entry-row
+  - trend-column
+  - day-keyed-projection
+  - degrade-to-absent
+  - adr-013
+  artifact: tests/weight-trend-tracker/acceptance/milestone-12-trend-in-the-record.feature
+  related:
+  - OUT-2
+  - OUT-3
+  - OUT-7
+  superseded_by: null
+  # Registered manually at DELIVER finalize (2026-09-09): same CLI defect as OUT-8..OUT-12.
