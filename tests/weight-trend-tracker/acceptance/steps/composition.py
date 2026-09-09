@@ -68,7 +68,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, NamedTuple
 
 from argon2 import PasswordHasher
 from domain_types import (
@@ -91,6 +91,7 @@ from domain_types import (
     day_label,
     hex_colors_in,
     parse_day,
+    parse_scale,
     scheme_token_maps,
 )
 from fake_clock import FakeClock
@@ -151,6 +152,7 @@ class TrackerComposition:
         self.study = StudyService(self)
         self.dated_entry = DatedEntryService(self)
         self.axis = AxisService(self)
+        self.trend_rows = TrendRowsService(self)
 
     # -- composition root (lazy: nothing is built until first use) ----------------
 
@@ -1391,16 +1393,38 @@ class DayFrameService(_Service):
 
 # ---------------------------------------------------------------- graph-first home
 
-#: Executable markup contract for graph-first-home (US-010/011/012, DISTILL 2026-07-24):
-#: the front-page graph mounts at id="home-graph" carrying data-view/data-scale
-#: exactly like the History page's #graph-page; the recent list is a server-rendered
-#: <ul id="recent-entries"> of "Fri 24 Jul — 82.2 kg" rows; the History page's
-#: complete record is <ul id="history-entries"> speaking the same row grammar.
+#: Executable markup contract for graph-first-home (US-010/011/012, DISTILL 2026-07-24)
+#: as REVISED by numeric-trend-history (US-016, DISTILL 2026-09-09, D-38): the
+#: front-page graph mounts at id="home-graph" carrying data-view/data-scale exactly
+#: like the History page's #graph-page; both entries lists are server-rendered
+#: <table> elements on the SAME two ids they always carried -- one <th scope="col">
+#: header row naming Date / Raw (kg) / Trend (kg), then one <tr> of three <td> per
+#: ENTRY: the day, the raw weight, the smoothed trend weight. The single-string
+#: "Fri 24 Jul — 82.2 kg" row grammar retired with US-016 (D6/D-35).
 HOME_GRAPH_MOUNT = re.compile(r'<[a-z]+[^>]*id="home-graph"[^>]*>')
-RECENT_LIST_BLOCK = re.compile(r'<ul id="recent-entries".*?</ul>', re.S)
-HISTORY_LIST_BLOCK = re.compile(r'<ul id="history-entries".*?</ul>', re.S)
-LIST_ROW = re.compile(r"<li[^>]*>\s*([^<]+?)\s*</li>")
+RECENT_LIST_BLOCK = re.compile(r'<table id="recent-entries".*?</table>', re.S)
+HISTORY_LIST_BLOCK = re.compile(r'<table id="history-entries".*?</table>', re.S)
+TABLE_ROW = re.compile(
+    r"<tr>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*</tr>", re.S
+)
+TABLE_HEADER = re.compile(r'<th scope="col"[^>]*>\s*(.*?)\s*</th>', re.S)
+COLUMN_HEADINGS = ("Date", "Raw (kg)", "Trend (kg)")
 TOUCH_AFFORDANCE = re.compile(r"<(a|button|input|form|select|textarea)\b")
+
+
+class Row(NamedTuple):
+    """One rendered entry row: the three cells, as read off the page or as
+    re-derived by the oracle. Comparing rows compares cells, so a drift in any
+    single column names itself in the failure message."""
+
+    day: str
+    raw: str
+    trend: str
+
+
+def parse_rows(block: str) -> list[Row]:
+    return [Row(*(cell.strip() for cell in match.groups())) for match in TABLE_ROW.finditer(block)]
+
 
 #: ADR-009 intent-telemetry read surface (DISTILL contract; Q2 resolved: raw
 #: rolling-week event counts over the SAME week frame as trend_views_this_week,
@@ -1413,13 +1437,19 @@ GRAPH_MODULE_PATH = "/static/graph.js"
 ALL_SCALE_WINDOWS = ("1W", "1M", "3M", "6M", "1Y", "ALL")
 
 
-def entry_row_text(day: date, kg: float) -> str:
-    """The one row grammar every entries list speaks (A18): 'Fri 24 Jul — 82.2 kg'.
+def entry_row_cells(day: date, kg: float, trend_kg: float | None) -> Row:
+    """The one row grammar every entries list speaks (A18 as revised by US-016):
+    the day, the raw weight at the scale's own 0.1 kg, and the smoothed trend at
+    0.01 kg -- two precisions on purpose (A35): the scale never measured a second
+    raw digit, and the derived trend moves too slowly to read at one. `kg` is
+    stated once per column header and never in a cell.
 
     Its day half is `day_label` (D-24), so this oracle cannot fork a second
     calendar wording any more than the production side can -- and it stays an
-    INDEPENDENT re-derivation: nothing here imports the server's own formatter."""
-    return f"{day_label(day)} — {kg:.1f} kg"
+    INDEPENDENT re-derivation: nothing here imports the server's own formatter.
+    A trend the projection could not supply renders as an EMPTY cell (D-34/A37) --
+    never a zero, never a copy of the raw value."""
+    return Row(day_label(day), f"{kg:.1f}", "" if trend_kg is None else f"{trend_kg:.2f}")
 
 
 class HomeGraphService(_Service):
@@ -1539,15 +1569,21 @@ class RecentListService(_Service):
     """Last-7 entries list (US-011, A18/D9): server-rendered, display-only,
     entries not days, gaps simply absent; refreshed on the save response (D-19)."""
 
-    def _rows(self, html: str) -> list[str]:
+    def _rows(self, html: str) -> list[Row]:
         block = RECENT_LIST_BLOCK.search(html)
         assert block, "the front page must carry the recent-entries list (#recent-entries)"
-        return [match.group(1).strip() for match in LIST_ROW.finditer(block.group(0))]
+        return parse_rows(block.group(0))
 
-    def _stored_rows(self, limit: int = 7) -> list[str]:
+    def _stored_rows(self, limit: int = 7) -> list[Row]:
         entries = self.comp.observer().get("/entries", params={"scale": "ALL"}).json()["entries"]
+        smoothed = self.comp.trend_rows.series_by_day()
         return [
-            entry_row_text(date.fromisoformat(e["date"]), e["weight_kg"]) for e in entries[:limit]
+            entry_row_cells(
+                date.fromisoformat(e["date"]),
+                e["weight_kg"],
+                smoothed.get(date.fromisoformat(e["date"])),
+            )
+            for e in entries[:limit]
         ]
 
     def assert_last_seven(self, ctx: SimpleNamespace) -> None:
@@ -1559,10 +1595,13 @@ class RecentListService(_Service):
         )
 
     def assert_begins_with(self, ctx: SimpleNamespace, text: str) -> None:
+        """`text` names the row by its DAY and RAW weight ("Fri 24 Jul — 82.2 kg"),
+        the wording the feature files have always used; the trend column is pinned
+        by its own scenarios (US-016), not smuggled into every other one."""
         rows = self._rows(ctx.response.text)
-        assert rows and rows[0] == text, (
-            f"the recent list must begin with {text!r}, it begins with "
-            f"{rows[0] if rows else 'nothing'!r}"
+        shown = f"{rows[0].day} — {rows[0].raw} kg" if rows else "nothing"
+        assert rows and shown == text, (
+            f"the recent list must begin with {text!r}, it begins with {shown!r}"
         )
 
     def screen_begins_with(self, ctx: SimpleNamespace, text: str) -> None:
@@ -1572,7 +1611,7 @@ class RecentListService(_Service):
     def assert_day_absent(self, ctx: SimpleNamespace, day: date) -> None:
         rows = self._rows(ctx.response.text)
         marker = day_label(day)
-        offenders = [row for row in rows if marker in row or "0.0 kg" in row]
+        offenders = [row for row in rows if row.day == marker or "0.0" in (row.raw, row.trend)]
         assert not offenders, (
             f"a missed day must be simply absent -- no zero, no placeholder (A18), "
             f"but the list carries {offenders}"
@@ -1631,14 +1670,22 @@ class HistoryRecordService(_Service):
         ctx.elapsed_ms = (time.monotonic() - started) * 1000
         return resp
 
-    def _rows(self, html: str) -> list[str]:
+    def _rows(self, html: str) -> list[Row]:
         block = HISTORY_LIST_BLOCK.search(html)
         assert block, "the History page must carry the complete record (#history-entries)"
-        return [match.group(1).strip() for match in LIST_ROW.finditer(block.group(0))]
+        return parse_rows(block.group(0))
 
-    def _all_stored_rows(self) -> list[str]:
+    def _all_stored_rows(self) -> list[Row]:
         entries = self.comp.observer().get("/entries", params={"scale": "ALL"}).json()["entries"]
-        return [entry_row_text(date.fromisoformat(e["date"]), e["weight_kg"]) for e in entries]
+        smoothed = self.comp.trend_rows.series_by_day()
+        return [
+            entry_row_cells(
+                date.fromisoformat(e["date"]),
+                e["weight_kg"],
+                smoothed.get(date.fromisoformat(e["date"])),
+            )
+            for e in entries
+        ]
 
     def assert_complete_newest_first(self, ctx: SimpleNamespace) -> None:
         html = ctx.response.text
@@ -1655,7 +1702,7 @@ class HistoryRecordService(_Service):
     def assert_days_absent(self, ctx: SimpleNamespace, start: date, end: date) -> None:
         rows = self._rows(ctx.response.text)
         gap_days = [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
-        offenders = [row for row in rows for day in gap_days if day_label(day) in row]
+        offenders = [row for row in rows for day in gap_days if row.day == day_label(day)]
         assert not offenders, (
             f"days without an entry must be absent from the list exactly as they are "
             f"gaps in the plot, but the list carries {offenders}"
@@ -1690,6 +1737,237 @@ class HistoryRecordService(_Service):
             f"the History page took {ctx.elapsed_ms:.0f} ms with the complete record, "
             f"budget {budget_ms} ms (G-2 extended)"
         )
+
+
+class TrendRowsService(_Service):
+    """The trend column on both entries lists (US-016, ADR-013).
+
+    DELIVER-facing contract (executable spec):
+        GET  /        -> the recent list is a <table id="recent-entries"> with a
+                         <th scope="col"> header row (Date / Raw (kg) / Trend (kg))
+                         and one <tr> of three <td> per ENTRY, newest first, both
+                         weights at 0.1 kg.
+        GET  /graph   -> the same table on id="history-entries", the WHOLE record,
+                         never windowed by the chart's selected scale (D-17).
+        POST /entries -> each `recent` pair gains `"trend_kg": <float> | null`
+                         (key always present) for the in-place repaint (D-37).
+        GET  /entries -> BYTE-IDENTICAL to pre-feature: the raw lens's read carries
+                         no trend (D-37); the trend lens keeps its own /trend.
+
+    Oracle: `GET /trend` at "ALL" -- the chart's own smoothed series, over the HTTP
+    boundary. Reading the expectation from the series the chart plots is what makes
+    A36 ("one value per day across the glance, both lists and the chart") a real
+    claim: a second algorithm, a second rounding, or a windowed re-smoothing on
+    either surface fails here rather than in a comment.
+    """
+
+    # -- oracle -------------------------------------------------------------------
+
+    def series_by_day(self) -> dict[date, float]:
+        """The smoothed series as {day: kg}, read from the chart's own endpoint."""
+        resp = self.comp.observer().get("/trend", params={"scale": TimeScale.ALL.value})
+        assert resp.status_code == 200, f"the series read failed: {resp.status_code}"
+        return {date.fromisoformat(p["date"]): p["trend_kg"] for p in resp.json()["points"]}
+
+    def _expected_trend(self, day: date) -> str:
+        smoothed = self.series_by_day()
+        assert day in smoothed, (
+            f"every entry day sits on the trend grid by construction (A32), but {day} "
+            f"is missing from a series spanning {min(smoothed, default=None)}"
+            f"..{max(smoothed, default=None)}"
+        )
+        return f"{smoothed[day]:.2f}"
+
+    def _recent_rows(self, ctx: SimpleNamespace) -> list[Row]:
+        return self.comp.recent_list._rows(ctx.response.text)
+
+    def _complete_rows(self, ctx: SimpleNamespace) -> list[Row]:
+        return self.comp.history_record._rows(ctx.response.text)
+
+    def _rows_by_day(self, rows: list[Row]) -> dict[str, Row]:
+        return {row.day: row for row in rows}
+
+    def _stored_days(self, limit: int | None = None) -> list[date]:
+        entries = self.comp.observer().get("/entries", params={"scale": "ALL"}).json()["entries"]
+        days = [date.fromisoformat(e["date"]) for e in entries]
+        return days if limit is None else days[:limit]
+
+    # -- fault injection ----------------------------------------------------------
+
+    def break_projection(self, monkeypatch: Any) -> None:
+        """Inject a failing day-to-trend projection, then restart so the wiring picks
+        it up. Every plausible binding is patched (module of definition + composition
+        and route rebinding sites), the `break_computation` precedent (D-13)."""
+
+        def failing_projection(*_args: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError("trend_by_day failed (injected fault)")
+
+        for target in (
+            "weight_tracker.core.trend.trend_by_day",
+            "weight_tracker.composition.trend_by_day",
+            "weight_tracker.web.routes.trend_by_day",
+        ):
+            monkeypatch.setattr(target, failing_projection, raising=False)
+        self.comp.system.restart()
+
+    # -- assertions ---------------------------------------------------------------
+
+    def _assert_rows_complete(self, rows: list[Row], surface: str) -> None:
+        assert rows, f"the {surface} must carry at least one row for a non-empty record"
+        thin = [row for row in rows if not (row.day and row.raw and row.trend)]
+        assert not thin, (
+            f"every {surface} row carries a date, a raw weight AND a trend weight "
+            f"(US-016), but these are incomplete: {thin}"
+        )
+
+    def assert_recent_rows_complete(self, ctx: SimpleNamespace) -> None:
+        self._assert_rows_complete(self._recent_rows(ctx), "recent list")
+
+    def assert_complete_rows_complete(self, ctx: SimpleNamespace) -> None:
+        self._assert_rows_complete(self._complete_rows(ctx), "complete record")
+
+    def _assert_matches_series(self, rows: list[Row], days: list[date], surface: str) -> None:
+        smoothed = self.series_by_day()
+        wrong = [
+            (row.day, row.trend, f"{smoothed[day]:.2f}")
+            for row, day in zip(rows, days, strict=True)
+            if day in smoothed and row.trend != f"{smoothed[day]:.2f}"
+        ]
+        assert not wrong, (
+            f"every {surface} trend value must be the smoothed series value for its own day "
+            f"-- one series, one rounding (A36) -- but (day, shown, series) differ: {wrong}"
+        )
+        off_grid = [day for day in days if day not in smoothed]
+        assert not off_grid, f"every entry day sits on the trend grid (A32), missing {off_grid}"
+
+    def assert_recent_matches_series(self, ctx: SimpleNamespace) -> None:
+        rows = self._recent_rows(ctx)
+        self._assert_matches_series(rows, self._stored_days(limit=len(rows)), "recent list")
+
+    def assert_complete_matches_series(self, ctx: SimpleNamespace) -> None:
+        self._assert_matches_series(
+            self._complete_rows(ctx), self._stored_days(), "complete record"
+        )
+
+    def assert_newest_row_matches_glance(self, ctx: SimpleNamespace) -> None:
+        """ONE value, two precisions (A35/A36): the glance speaks the series end at
+        0.1 kg and the newest row speaks the same day at 0.01 kg. Both are checked
+        against the SERIES rather than against each other, so a re-rounding of an
+        already-rounded number -- the way two precisions usually start to drift --
+        cannot pass by looking self-consistent."""
+        rows = self._recent_rows(ctx)
+        glance = GLANCE_LINE.search(ctx.response.text)
+        assert rows and glance, "the scenario needs both a recent list and a glance line"
+        newest = max(self._stored_days())
+        smoothed = self.series_by_day()[newest]
+        assert rows[0].day == day_label(newest), "the newest entry belongs on top of the list"
+        assert rows[0].trend == f"{smoothed:.2f}", (
+            f"the newest row must speak its day's series value at 0.01 kg "
+            f"({smoothed:.2f}), it speaks {rows[0].trend!r}"
+        )
+        assert f"Trend: {smoothed:.1f} kg" in glance.group(1), (
+            f"the glance must speak that SAME value at 0.1 kg (Trend: {smoothed:.1f} kg), "
+            f"it speaks {glance.group(1).strip()!r}"
+        )
+
+    def assert_surfaces_agree(self, ctx: SimpleNamespace) -> None:
+        newest = max(self._stored_days())
+        front = self._rows_by_day(self._recent_rows(ctx))
+        history = self._rows_by_day(
+            self._complete_rows(SimpleNamespace(response=self.comp.graph.open()))
+        )
+        label = day_label(newest)
+        assert label in front and label in history, (
+            f"{label} must appear on both surfaces: front page {label in front}, "
+            f"History page {label in history}"
+        )
+        assert front[label].trend == history[label].trend == self._expected_trend(newest), (
+            f"one day, one trend value: front page {front[label].trend!r}, History page "
+            f"{history[label].trend!r}, series {self._expected_trend(newest)!r}"
+        )
+
+    def assert_unwindowed(self, ctx: SimpleNamespace) -> None:
+        """The complete record is the WHOLE record at every scale (D-17/A34): the
+        chart windows, the list does not. The lens x scale world is closed and small,
+        so it is enumerated rather than sampled."""
+        baseline = self._complete_rows(ctx)
+        for lens in (ViewMode.TREND, ViewMode.RAW):
+            for window in ALL_SCALE_WINDOWS:
+                shown = SimpleNamespace(response=self.comp.graph.open(lens, parse_scale(window)))
+                assert self._complete_rows(shown) == baseline, (
+                    f"the complete record must read identically at {lens.value}/{window} "
+                    f"-- the chart windows, the record does not (D-17)"
+                )
+
+    def assert_no_half_rows(self, ctx: SimpleNamespace) -> None:
+        rows = self._complete_rows(ctx)
+        half = [row for row in rows if bool(row.raw) != bool(row.trend)]
+        assert not half, (
+            f"a rendered row carries both weights or the record has no row for that day "
+            f"at all -- never half of one (A33), but found {half}"
+        )
+
+    def _handback(self, ctx: SimpleNamespace) -> list[dict[str, Any]]:
+        recent = ctx.response.json().get("recent")
+        assert recent, "the save must hand back the refreshed recent list (`recent`, D-19)"
+        return recent
+
+    def assert_handback_complete(self, ctx: SimpleNamespace) -> None:
+        missing = [pair for pair in self._handback(ctx) if pair.get("trend_kg") is None]
+        assert not missing, (
+            f"the repaint needs a trend for every handed-back entry (D-37, key always "
+            f"present and non-null on a healthy read), but these carry none: {missing}"
+        )
+
+    def assert_handback_matches_series(self, ctx: SimpleNamespace) -> None:
+        smoothed = self.series_by_day()
+        wrong = [
+            (pair["date"], pair["trend_kg"], smoothed.get(date.fromisoformat(pair["date"])))
+            for pair in self._handback(ctx)
+            if round(pair["trend_kg"], 9) != round(smoothed[date.fromisoformat(pair["date"])], 9)
+        ]
+        assert not wrong, (
+            f"the handed-back trend values are the RECOMPUTED series over the record "
+            f"including the just-saved day (D11 retrospective revision), but "
+            f"(day, handed back, series) differ: {wrong}"
+        )
+
+    def assert_raw_survives(self, ctx: SimpleNamespace) -> None:
+        rows = self._recent_rows(ctx)
+        assert rows, "a failing trend must not cost the raw record its list (A37)"
+        thin = [row for row in rows if not (row.day and row.raw)]
+        assert not thin, f"every row keeps its date and raw weight under degrade, missing: {thin}"
+
+    def assert_trend_blank(self, ctx: SimpleNamespace) -> None:
+        rows = self._recent_rows(ctx)
+        spoken = [row for row in rows if row.trend != ""]
+        assert not spoken, (
+            f"a failing trend renders EMPTY cells -- never a zero, a stale value, or a "
+            f"copy of the raw weight (D12/A37) -- but these speak: {spoken}"
+        )
+
+    def assert_one_grammar(self, ctx: SimpleNamespace) -> None:
+        recent = self._recent_rows(ctx)
+        complete = self._complete_rows(SimpleNamespace(response=self.comp.graph.open()))
+        assert recent == complete[: len(recent)], (
+            f"one row definition serves both surfaces (D7/D-35): the recent list must be "
+            f"the newest rows of the complete record, got {recent} vs {complete[: len(recent)]}"
+        )
+
+    def _assert_headers(self, block_pattern: Any, html: str, surface: str) -> None:
+        block = block_pattern.search(html)
+        assert block, f"the {surface} must be rendered as a table"
+        headings = tuple(match.group(1) for match in TABLE_HEADER.finditer(block.group(0)))
+        assert headings == COLUMN_HEADINGS, (
+            f'the {surface} names its columns as real <th scope="col"> headers so a screen '
+            f"reader announces each cell (D-38), expected {COLUMN_HEADINGS}, got {headings}"
+        )
+
+    def assert_recent_headers(self, ctx: SimpleNamespace) -> None:
+        self._assert_headers(RECENT_LIST_BLOCK, ctx.response.text, "recent list")
+
+    def assert_complete_headers(self, ctx: SimpleNamespace) -> None:
+        self._assert_headers(HISTORY_LIST_BLOCK, ctx.response.text, "complete record")
 
 
 class StudyService(_Service):
@@ -1947,10 +2225,10 @@ class DatedEntryService(_Service):
         newest = date.fromisoformat(max(stored))
         block = RECENT_LIST_BLOCK.search(ctx.response.text)
         assert block, "the grammar check reads the record's own rendered row"
-        newest_row = LIST_ROW.search(block.group(0))
-        assert newest_row and newest_row.group(1).strip().split(" — ")[0] == day_label(newest), (
+        rendered = parse_rows(block.group(0))
+        assert rendered and rendered[0].day == day_label(newest), (
             f"the hint must name its day in the record's own grammar ({day_label(newest)!r}), "
-            f"but the record renders {newest_row and newest_row.group(1)!r}"
+            f"but the record renders {rendered[0].day if rendered else None!r}"
         )
 
     # -- write-time classification (ADR-011): the trail --------------------------
@@ -2051,7 +2329,9 @@ class DatedEntryService(_Service):
             "the save must hand back the refreshed picture (`recent`, D-19) -- a repair "
             "refreshes in place exactly like a morning log"
         )
-        rows = [entry_row_text(date.fromisoformat(e["date"]), e["weight_kg"]) for e in recent]
+        rows = [
+            f"{day_label(date.fromisoformat(e['date']))} — {e['weight_kg']:.1f} kg" for e in recent
+        ]
         assert rows.count(row_text) == 1, (
             f"the repaired day must stand exactly ONCE in the refreshed picture "
             f"(one entry per day), expected {row_text!r} among {rows}"

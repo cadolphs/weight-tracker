@@ -138,16 +138,18 @@ def test_the_app_shell_cache_moved_so_an_offline_open_is_not_served_yesterdays_s
     never notices; an OFFLINE open would keep being served the pre-date-row entry
     screen until the worker reinstalls, and only a new cache name reinstalls it.
 
-    Inherited-test renegotiation (y-axis-floor 02-01, D-32): the pin's intent is
-    "the cache MOVES when a pre-cached response changes", and it moved again --
-    -v4 -> -v5 -- because the pre-cached graph.js now applies the served axis.
-    The name pinned here follows; the intent does not."""
+    Inherited-test renegotiation (y-axis-floor 02-01, D-32; numeric-trend-history,
+    D-40): the pin's intent is "the cache MOVES when a pre-cached response
+    changes", and it has moved twice since -- -v4 -> -v5 because the pre-cached
+    graph.js began applying the served axis, and -v5 -> -v6 because the
+    pre-cached `/` now carries the trend column. The name pinned here follows;
+    the intent does not."""
     named = re.search(r'const SHELL_CACHE = "([^"]+)";', SERVICE_WORKER)
     assert named, "the service worker must still name its app-shell cache"
-    assert named.group(1) == "weight-tracker-shell-v5", (
+    assert named.group(1) == "weight-tracker-shell-v6", (
         "the app-shell cache must have moved past weight-tracker-shell-v3 (the date "
-        "row, -v4) and again past -v4 (the served axis in graph.js, -v5), but it "
-        f"still names {named.group(1)!r}"
+        "row, -v4), past -v4 (the served axis in graph.js, -v5) and past -v5 (the "
+        f"trend column on the pre-cached `/`, -v6), but it still names {named.group(1)!r}"
     )
 
 

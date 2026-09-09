@@ -136,10 +136,11 @@ def test_the_hint_and_the_record_rows_share_one_day_grammar():
         "the `Fri 24 Jul` day half is ONE named function (D-24)"
     )
     assert re.search(
-        r"function entryRowText\(isoDate, weightKg\) \{\s*\n\s*return `\$\{dayLabel\(", MARKUP
+        r"function entryRowCells\(entry\) \{\s*\n\s*return \[\s*\n\s*dayLabel\(", MARKUP
     ), (
-        "the record's own rows are built FROM dayLabel, so the hint and the rows "
-        "cannot fork into two calendar wordings -- the server speaks the same one"
+        "the record's own rows are built FROM dayLabel -- their day cell is its first "
+        "cell (US-016, D-35) -- so the hint and the rows cannot fork into two calendar "
+        "wordings; the server speaks the same one through core `day_label`"
     )
     assert MARKUP.count("const WEEKDAYS") == 1 and MARKUP.count("const MONTHS") == 1, (
         "one weekday table and one month table on the page: a second copy is how two wordings start"

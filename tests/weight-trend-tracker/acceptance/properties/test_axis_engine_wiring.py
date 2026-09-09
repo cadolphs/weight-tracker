@@ -164,9 +164,11 @@ def test_the_app_shell_cache_moved_because_the_pre_cached_engine_changed():
     until the worker reinstalls, and only a new cache name reinstalls it (D-32, R-5)."""
     named = re.search(r'const SHELL_CACHE = "([^"]+)";', SERVICE_WORKER)
     assert named, "the service worker must still name its app-shell cache"
-    assert named.group(1) == "weight-tracker-shell-v5", (
-        "the app-shell cache must move to weight-tracker-shell-v5 now that the "
-        f"pre-cached graph.js applies the served axis, but it still names {named.group(1)!r}"
+    assert named.group(1) == "weight-tracker-shell-v6", (
+        "the app-shell cache must move whenever a pre-cached response changes -- to "
+        "-v5 when graph.js began applying the served axis, and again to -v6 now that "
+        "the pre-cached `/` carries the trend column (US-016, D-40) -- but it still "
+        f"names {named.group(1)!r}"
     )
 
 

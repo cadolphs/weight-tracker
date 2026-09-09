@@ -26,8 +26,9 @@ steps:
       |   Weight:  [ 82.2      ] kg          |
       |   (yesterday: 82.4 kg)               |
       |            [  Save  ]                |
-      | Thu 23 Jul — 82.4 kg                 |  <- last 7 ENTRIES, display-only
-      | Wed 22 Jul — 82.6 kg  …              |
+      | Date        Raw(kg)  Trend(kg)       |  <- last 7 ENTRIES, display-only
+      | Thu 23 Jul     82.4     82.3        |     raw + smoothed side by side
+      | Wed 22 Jul     82.6     82.3  …     |     (numeric-trend-history)
       |   [History] -> full graph + list     |
       +--------------------------------------+
       | Saved: 82.2 kg -- Fri 24 Jul         |
@@ -36,7 +37,7 @@ steps:
     shared_artifacts:
       - name: "weight_entry"
         source: "entry store (single source of truth for {date, weight_kg})"
-        displayed_as: "confirmation line, history graph point, trend input, recent/complete list rows"
+        displayed_as: "confirmation line, history graph point, trend input, recent/complete list rows (raw column, paired with the trend column since numeric-trend-history)"
         consumers: ["step 1 confirmation", "step 1 front-page graph + last-7 list (graph-first-home)", "step 2 raw graph + complete history list", "step 3 trend", "step 4 edit form"]
       - name: "today_date"
         source: "device-local calendar date"
@@ -49,7 +50,7 @@ steps:
       - name: "current_trend_display"
         source: "TrendProjection (derived from entry store per read; never stored — same smoothed series as step 3)"
         displayed_as: "'Trend: 82.3 kg · ↓0.25 kg/week' glance line; rate only when record spans >=7 days"
-        consumers: ["step 1 glance line (pre-save and post-save refresh)", "step 1 front-page graph (graph-first-home; same smoothed series)", "step 3 trend view (same series)"]
+        consumers: ["step 1 glance line (pre-save and post-save refresh)", "step 1 front-page graph (graph-first-home; same smoothed series)", "step 3 trend view (same series)", "step 1 recent-entries trend column (numeric-trend-history; the SAME series read per entry day, not just series-end)", "step 2 complete-record trend column (numeric-trend-history; whole record, never windowed by the chart scale)"]
     emotional_state: { entry: "routine, half-awake", exit: "done and oriented — knows where he stands and which way he's moving" }
     integration_checkpoint: "Saved entry is immediately visible in history (steps 2-3 read the same store); glanced trend value equals the graph's trend line for the same entry set (single smoothed series)"
     failure_modes:
@@ -65,6 +66,9 @@ steps:
       - "Evening render shows the next-day frame (read surfaces — yesterday anchor, graph windows — must use the device day, never server UTC)" # fix-device-day-reads
       - "Ambient front-page graph render counted as deliberate trend study (KPI-3 inflation ~7x; ambient renders — page open at defaults, post-save refresh — must never increment the deliberate counter)" # graph-first-home
       - "Front-page graph or recent-list fetch blocking or delaying entry readiness (must degrade to absent; <=2 s interactive and save flow unaffected)" # graph-first-home
+      - "The trend column disagreeing with the glance line above it about the same day (one smoothed series, one rendered precision — any disagreement is a defect)" # numeric-trend-history
+      - "A failing trend projection blanking the whole recent list instead of only its trend cells (raw values, entry field and save must stand; never a zero, a stale value, or a copy of the raw)" # numeric-trend-history
+      - "A backfilled day leaving stale trend values on the rows above it (the smoother revises the past by design — the in-place repaint must carry the revised values, not the pre-save ones)" # numeric-trend-history
       # NOTE (graph-first-home, locked D6): the keypad covering the graph on open is ACCEPTED, not a failure — autofocus + decimal keypad take priority.
     gherkin: |
       Scenario: Morning weight is captured in seconds
@@ -90,6 +94,8 @@ steps:
       - "Chart axes, gridlines, or series strokes illegible in the dark color scheme" # calm-visual-theme
       - "Complete entries list and plotted points disagree (both must render exactly the stored entries)" # graph-first-home
       - "Auto-zoomed y-axis turns a week of ±0.3 kg raw jitter into a screen-filling sawtooth (same minimum visible span rule as the trend lens — 2.0 kg, shared engine, floor widens never clips)" # y-axis-floor
+      - "The complete-record trend column changing when a time scale is tapped (the list is always the whole record, D-17; the chart windows, the record does not)" # numeric-trend-history
+      - "Three columns forcing horizontal scroll or truncated numbers on a 360 px phone, or decimal points failing to align down a column" # numeric-trend-history
     gherkin: |
       Scenario: History is readable at the chosen time scale
         Given Clemens has 45 daily entries between March and July 2026
@@ -154,6 +160,9 @@ integration_validation:
     - artifact: "current_trend_display"
       must_match_across: [1, 3]
       failure_message: "Trend value glanced at the entry screen must equal the graph's trend line for the same entries (one smoothed series, no second algorithm)"
+    - artifact: "trend_value_per_day"
+      must_match_across: [1, 2, 3]
+      failure_message: "A given day's trend value is ONE value wherever it is shown — the glance line, the front-page recent list, the History complete-record list and the chart — to the rendered precision (0.1 kg). It always comes from the smoothed series over the FULL entry set (ADR-004), read at that day; there is no second algorithm, no stored copy, and no per-surface rounding rule (numeric-trend-history A36)"
     - artifact: "y_axis_floor_kg"
       must_match_across: [1, 2, 3]
       failure_message: "The minimum visible y-span (2.0 kg) and the 0.5 kg bound grid (both bounds snapped outward) are ONE rule with two constants applied by the shared chart engine on both surfaces (front page, History) and both lenses (Trend, Raw) at every scale — never per-surface, per-lens, or per-scale (y-axis-floor D7/D9, A25/A31)"
@@ -180,3 +189,6 @@ changelog:
   - date: "2026-09-04"
     feature: "y-axis-floor"
     change: "Presentation-only delta (DISCUSS): the shared chart engine guarantees a minimum visible y-span of 2.0 kg (absolute) on both surfaces and both lenses at every scale — floor widens (data centred), never clips; above the floor the auto-range is kept. On every window both bounds then snap OUTWARD to a 0.5 kg grid (D9), so axis edges read clean (76.0 … 78.5, never 77.42234); snapping only widens. Failure modes added: step 3 (auto-zoom re-amplifying the noise the trend removed; zero-height axis on degenerate windows; awkward-float bounds), step 2 (raw jitter as screen-filling sawtooth). New integration rule y_axis_floor_kg (floor + bound grid, one rule across steps 1-3). No step action, screen, shared artifact, series, or telemetry change; step 1 unchanged in tap count."
+  - date: "2026-09-09"
+    feature: "numeric-trend-history"
+    change: "Presentation-only delta (DISCUSS): both entries lists — the front page's last-7 (step 1) and the History page's complete record (step 2) — become aligned Date | Raw | Trend tables, each row carrying the smoothed trend value for its own day beside the raw one, at the same 0.1 kg precision as every other weight on the screen. Values come from the existing full-record smoothed series (ADR-004, derived never stored), read per entry day; retrospective revision of past rows after a backfill is accepted and expected. One row definition serves both server surfaces and the client post-save repaint. New integration rule trend_value_per_day (one value per day across glance, both lists and the chart). Failure modes added: step 1 (list/glance disagreement, degrade blanking more than the trend cells, stale rows after a backfill), step 2 (list windowed by the chart scale, three columns breaking a 360 px viewport). Lists stay entry-based and display-only; gaps stay absent rows. No new step, tap, fetch, script or telemetry; step 1 unchanged in tap count."

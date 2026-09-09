@@ -125,16 +125,28 @@ def test_a_save_hands_back_the_recent_head_with_today_on_top(actor, seeded, toda
         "a saved response must hand back the refreshed recent list (`recent`, D-19)"
     )
     recent = body["recent"]
-    assert recent[0] == {"date": TODAY.isoformat(), "weight_kg": today_kg}, (
-        f"today's save must sit on top of the hand-back, got {recent[:1]}"
+    # US-016 (D-37): each pair gained an additive `trend_kg` for the repaint's third
+    # column -- always present, null only under a degraded projection. The pair's
+    # identity is still {date, weight_kg}; the trend rides beside it.
+    assert {k: v for k, v in recent[0].items() if k != "trend_kg"} == {
+        "date": TODAY.isoformat(),
+        "weight_kg": today_kg,
+    }, f"today's save must sit on top of the hand-back, got {recent[:1]}"
+    assert "trend_kg" in recent[0] and recent[0]["trend_kg"] is not None, (
+        f"a healthy read hands back a trend for every entry (D-37), got {recent[:1]}"
     )
     assert len(recent) <= 7, f"the hand-back is capped at 7 entries, got {len(recent)}"
     shown_days = [row["date"] for row in recent]
     assert shown_days == sorted(shown_days, reverse=True), "newest first, always"
     stored = actor.get("/entries", params={"scale": "ALL"}).json()["entries"]
-    assert recent == stored[:7], (
+    assert [{k: v for k, v in row.items() if k != "trend_kg"} for row in recent] == stored[:7], (
         "the hand-back must EQUAL the head of the /entries read -- one source (D-18), "
-        "never a second story"
+        "never a second story. The raw read carries no trend (D-37): the raw lens has "
+        "/entries, the trend lens has /trend, and one series never travels two paths"
+    )
+    assert all("trend_kg" not in row for row in stored), (
+        "GET /entries stays byte-identical to pre-feature -- the trend column reaches "
+        "the wire only on the save's hand-back (D-37)"
     )
     assert "confirmation" in body and "glance" in body, (
         "confirmation and glance ride unchanged beside the hand-back (D-19)"
