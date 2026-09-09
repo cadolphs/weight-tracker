@@ -72,16 +72,26 @@
       <p id="save-feedback" role="alert" hidden></p>
     </form>
     {% if recent_entries %}
-    <!-- Recent entries (US-011, A18/D9): the last 7 ENTRIES newest first, resting
-         below the form -- server-rendered from the SAME entry read as everything
-         above, display-only rows in the one shared grammar. Looking is not
-         touching: no links, no buttons, no edit or delete. Absent entirely on an
-         empty record; missing days are simply absent, never zeros. -->
-    <ul id="recent-entries" aria-label="Recent entries">
+    <!-- Recent entries (US-011, A18/D9; trend column US-016, ADR-013): the last 7
+         ENTRIES newest first, resting below the form -- server-rendered from the
+         SAME entry read as everything above, display-only rows in the one shared
+         grammar. Two columns of numbers under headings are tabular data, so this
+         is a real <table> with real <th scope="col"> headers (D-38): a screen
+         reader announces "Raw, 77.2" per cell instead of one run-on line. `kg` is
+         stated once per column, never in a cell. Looking is not touching: no
+         links, no buttons, no edit or delete. Absent entirely on an empty record;
+         missing days are simply absent, never zeros; a trend the projection could
+         not supply leaves an EMPTY cell, never a stand-in. -->
+    <table id="recent-entries" aria-label="Recent entries">
+      <thead>
+        <tr>{% for heading in entry_columns %}<th scope="col">{{ heading }}</th>{% endfor %}</tr>
+      </thead>
+      <tbody>
       {% for row in recent_entries %}
-      <li>{{ row }}</li>
+        <tr><td>{{ row.day_text }}</td><td>{{ row.raw_text }}</td><td>{{ row.trend_text }}</td></tr>
       {% endfor %}
-    </ul>
+      </tbody>
+    </table>
     {% endif %}
     <p><a href="/graph">History</a></p>
   </main>
@@ -107,11 +117,12 @@
       return isoLocalDay(new Date(year, month - 1, day - 1));
     }
 
-    // The one row grammar, spoken client-side for the in-place repaint (A18):
-    // 'Fri 24 Jul — 82.2 kg' -- weekday, day without a leading zero, month. Its
-    // day half is dayLabel(), shared with the hint line below (D-24) so the
-    // screen can never fork into a second calendar wording; the server speaks
-    // the same one in entry_row_text and in every save confirmation.
+    // The one row grammar, spoken client-side for the in-place repaint (A18 as
+    // revised by US-016): three cells -- 'Fri 24 Jul', '82.2', '82.4'. Its day
+    // half is dayLabel(), shared with the hint line below (D-24) so the screen
+    // can never fork into a second calendar wording; the server speaks the same
+    // one in entry_row and in every save confirmation. The trend NUMBER always
+    // arrives on the wire (D-37): the client formats it, and never computes it.
     const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -120,8 +131,16 @@
       const weekday = WEEKDAYS[new Date(year, month - 1, day).getDay()];
       return `${weekday} ${day} ${MONTHS[month - 1]}`;
     }
-    function entryRowText(isoDate, weightKg) {
-      return `${dayLabel(isoDate)} — ${weightKg.toFixed(1)} kg`;
+    // Raw at the scale's own 0.1 kg; the trend at 0.01 kg, because it is derived
+    // and a damped week often moves only ~0.05 kg (A35, retuned at dogfood). The
+    // server speaks these same two precisions in entry_row.
+    function entryRowCells(entry) {
+      return [
+        dayLabel(entry.date),
+        entry.weight_kg.toFixed(1),
+        // Absent, never a stand-in: a degraded trend leaves the cell empty (A37).
+        entry.trend_kg == null ? "" : entry.trend_kg.toFixed(2),
+      ];
     }
 
     // The WHOLE record as {iso_day: kg} (ADR-010): ONE map answers both the
@@ -219,16 +238,39 @@
         return;
       }
       if (!list) {
-        list = document.createElement("ul");
+        list = document.createElement("table");
         list.id = "recent-entries";
         list.setAttribute("aria-label", "Recent entries");
+        list.appendChild(headerRow());
+        list.appendChild(document.createElement("tbody"));
         entryForm.insertAdjacentElement("afterend", list);
       }
-      list.replaceChildren(...recent.map((entry) => {
-        const row = document.createElement("li");
-        row.textContent = entryRowText(entry.date, entry.weight_kg);
+      const body = list.querySelector("tbody");
+      body.replaceChildren(...recent.map((entry) => {
+        const row = document.createElement("tr");
+        row.replaceChildren(...entryRowCells(entry).map((text) => {
+          const cell = document.createElement("td");
+          cell.textContent = text;
+          return cell;
+        }));
         return row;
       }));
+    }
+
+    // The header the server renders, rebuilt only when the table did not exist
+    // (the first morning's save). One list of headings, handed over by the page.
+    const ENTRY_COLUMNS = {{ entry_columns | tojson }};
+    function headerRow() {
+      const head = document.createElement("thead");
+      const row = document.createElement("tr");
+      row.replaceChildren(...ENTRY_COLUMNS.map((heading) => {
+        const cell = document.createElement("th");
+        cell.scope = "col";
+        cell.textContent = heading;
+        return cell;
+      }));
+      head.appendChild(row);
+      return head;
     }
 
     // What the phone now knows, after a save answered (ADR-010). PURE: the map

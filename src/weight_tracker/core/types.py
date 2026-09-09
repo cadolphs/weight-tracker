@@ -107,6 +107,14 @@ class TrendPoint:
     trend_kg: float
 
 
+def day_label(day: date) -> str:
+    """THE calendar wording this product speaks: 'Fri 24 Jul' -- weekday, day
+    without a leading zero, month. One definition, so the save confirmation, the
+    entry hint and every entries-list row can never fork a second wording
+    (Mandate-12). The year is omitted by design (A18): a recent week needs none."""
+    return f"{day:%a} {day.day} {day:%b}"
+
+
 @dataclass(frozen=True)
 class Saved:
     day: date
@@ -115,7 +123,7 @@ class Saved:
     @property
     def confirmation(self) -> str:
         """Human confirmation shown after a save, e.g. 'Saved: 82.4 kg — Tue 21 Jul'."""
-        return f"Saved: {self.weight_kg:.1f} kg — {self.day:%a} {self.day.day} {self.day:%b}"
+        return f"Saved: {self.weight_kg:.1f} kg — {day_label(self.day)}"
 
 
 @dataclass(frozen=True)

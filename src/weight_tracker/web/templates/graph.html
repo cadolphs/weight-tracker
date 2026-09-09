@@ -29,12 +29,21 @@
     {% if history_rows %}
     <h2>Complete record</h2>
     <!-- The whole record, newest first, server-rendered from the same read the
-         raw plot draws (US-012, D-17). Display-only rows: no per-row markup,
-         handlers, or affordances (02-02's budget depends on lean rows). -->
-    <ul id="history-entries">
-      {% for row in history_rows %}<li>{{ row }}</li>
+         raw plot draws (US-012, D-17), each row carrying its raw weight beside the
+         smoothed trend for that same day (US-016, ADR-013). ALWAYS the whole
+         record: the chart windows, this table does not. Display-only rows: no
+         per-row markup, handlers, or affordances (02-02's budget depends on lean
+         rows). -->
+    <table id="history-entries" aria-label="Complete record">
+      <thead>
+        <tr>{% for heading in entry_columns %}<th scope="col">{{ heading }}</th>{% endfor %}</tr>
+      </thead>
+      <tbody>
+      {% for row in history_rows %}
+        <tr><td>{{ row.day_text }}</td><td>{{ row.raw_text }}</td><td>{{ row.trend_text }}</td></tr>
       {% endfor %}
-    </ul>
+      </tbody>
+    </table>
     {% endif %}
     <p id="empty-invite" hidden>No entries yet — <a href="/">log your first weight</a>.</p>
     <p><a href="/">Back to today's entry</a></p>

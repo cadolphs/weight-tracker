@@ -19,7 +19,7 @@ from typing import Any
 from fastapi import FastAPI
 
 from weight_tracker.core.glance import glance
-from weight_tracker.core.trend import trend_series_in
+from weight_tracker.core.trend import trend_by_day, trend_series_in
 from weight_tracker.ports import ClockPort
 from weight_tracker.shell.access_gate import AccessGate, install_access_gate
 from weight_tracker.shell.entry_store import SqliteEntryStore, replication_status
@@ -92,6 +92,7 @@ def build_app(
             clock=clock,
             trend_series_in=trend_series_in,
             glance_summary_of=glance,
+            trend_by_day=trend_by_day,
             count_events_since=partial(count_events_since, db_path),
             entry_ms_samples_since=partial(entry_ms_samples_since, db_path),
             backdated_saves_since=partial(backdated_saves_since, db_path),

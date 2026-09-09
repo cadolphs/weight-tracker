@@ -7,7 +7,7 @@
 // it now applies the served axis. Fetch is network-first, so an online morning
 // is unaffected; an OFFLINE open would otherwise keep the pre-axis engine out
 // of v4 until the worker reinstalls.
-const SHELL_CACHE = "weight-tracker-shell-v5";
+const SHELL_CACHE = "weight-tracker-shell-v6";
 const APP_SHELL = [
   "/",
   "/static/uplot.iife.min.js",

@@ -47,6 +47,22 @@ def trend_series(entries: Sequence[Entry]) -> list[TrendPoint]:
     return [TrendPoint(day=day, trend_kg=kg) for day, kg in zip(grid, smoothed_means, strict=True)]
 
 
+def trend_by_day(entries: Sequence[Entry]) -> dict[date, float]:
+    """The smoothed series as a day-keyed lookup: the SAME values `trend_series`
+    returns, addressable by calendar day (ADR-013).
+
+    Total over the record by construction: the grid spans first->last entry day,
+    so every ENTRY day has a value and a row can never want for one. Grid days
+    with no entry are present here too and are simply not rendered -- the lists
+    are entry-based, never calendar-based (A18/A33).
+
+    Derived, never stored (ADR-004): the values revise retrospectively when a
+    past day is backfilled, which is the point -- a row shows the best current
+    estimate of the past, not a frozen guess.
+    """
+    return {point.day: point.trend_kg for point in trend_series(entries)}
+
+
 def trend_series_in(entries: Sequence[Entry], scale: TimeScale, today: date) -> list[TrendPoint]:
     """Smoothed trend for the selected scale: full-record smoothing, windowed OUTPUT.
 

@@ -162,20 +162,35 @@ main > * + * {
   padding: var(--space-1) var(--space-2);
 }
 
-/* Entries lists (US-011/US-012, D9): quiet display-only rows in the one shared
-   grammar -- neutral ink, hairline separation, no affordances to dress. */
+/* Entries tables (US-011/US-012, D9; trend column US-016, D-39): quiet
+   display-only rows in the one shared grammar -- neutral ink, hairline
+   separation, no affordances to dress. Both weight columns are right-aligned on
+   TABULAR figures so decimal points line up down the column: reading how the
+   trend moved is a subtraction, and a subtraction wants aligned digits. */
 #recent-entries,
 #history-entries {
-  list-style: none;
+  width: 100%;
+  border-collapse: collapse;
   margin-block: var(--space-3) 0;
-  padding: 0;
   color: var(--text-muted);
 }
 
-#recent-entries li,
-#history-entries li {
+#recent-entries th,
+#history-entries th,
+#recent-entries td,
+#history-entries td {
   padding-block: var(--space-1);
   border-top: 1px solid var(--border);
+  font-weight: 400;
+  text-align: left;
+}
+
+#recent-entries th:not(:first-child),
+#history-entries th:not(:first-child),
+#recent-entries td:not(:first-child),
+#history-entries td:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- Exception: state via attributes, never new classes ---- */
