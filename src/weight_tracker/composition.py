@@ -61,22 +61,40 @@ def build_app(
                                          its entry_ms is withheld as NULL -- zero KPI-1 speed
                                          samples via the shipped null-skip -- and its entry.saved
                                          payload carries "backdated": true for the KPI-8 count.
-                                         Response shape unchanged.
-                                         (saved responses carry "glance" display text for the
-                                         in-place refresh; delivery emits trend_glance_shown)
-        GET  /entries?scale=...          WeightHistory.entries_in(window)
-        GET  /trend?scale=...            TrendProjection: the picture's series, windowed
+                                         Response: {"outcome":"saved","confirmation","date",
+                                         "weight_kg","glance": text|null,"recent":[{"date",
+                                         "weight_kg","trend_kg": kg|null} x<=7, newest first]}
+                                         -- glance and recent are route-level enrichment from
+                                         the one picture (ADR-014); delivering a glance emits
+                                         trend_glance_shown. Or {"outcome":"rejected","reason":
+                                         <RejectionReason value>,"message","echo"}. 401 when locked.
+        GET  /entries?scale=<1W|1M|3M|6M|1Y|ALL>&today?
+                                         WeightHistory.entries_in(window) ->
+                                         {"entries":[{"date","weight_kg"} newest first],
+                                         "invite_first_log": bool,"y_range":[lo,hi]|null}
+                                         (y_range = the honest axis over the windowed raw
+                                         values, ADR-012; builds no picture, raw lens only)
+        GET  /trend?scale=...&today?     the picture's series, windowed ->
+                                         {"points":[{"date","trend_kg"}],"y_range":[lo,hi]|null}
                                          (a PURE READ since ADR-009: the trend_view_opened
                                          emission is retired -- deliberate study is counted
                                          on /graph opens and the study beacon)
-        GET  /graph?view=...&scale=...   graph page (default view=trend A4; one-tap
+        GET  /graph?view=trend|raw&scale=...
+                                         graph page HTML, data-view/data-scale round-tripped
+                                         (default view=trend A4; one-tap
                                          Trend/Raw toggle shares selected_time_scale)
-        GET  /stats                      the trail's KPI report (ADR-015): one pure
+        GET  /stats                      the trail's KPI report (ADR-015) -> {"entry_logged_count",
+                                         "trend_view_opened_count","trend_views_this_week",
+                                         "trend_study_this_week","home_graph_shown_this_week",
+                                         "backdated_saves_this_week","speed":{"median_ms",
+                                         "p90_ms","sample_count"}}: one pure
                                          derivation over the whole trail -- entry speed,
                                          trend opens incl. trend_views_this_week rolling
                                          7 days, backdated_saves_this_week (in-app
                                          repairs, KPI-8) over that same rolling week
+        POST /telemetry/trend-study      study beacon (ADR-009): closed vocabulary -> 2xx | 400
         GET  /healthz                    unauthenticated health/replication status
+                                         -> 200 {"status":"ok",...}
         GET  /manifest.webmanifest       PWA install manifest
         GET  /sw.js                      minimal service worker (app-shell cache only)
     """

@@ -1,8 +1,9 @@
-"""Layer-1 pure-core properties for validation + upsert resolution (US-001/US-003) -- PBT full.
+"""Layer-1 pure-core properties for validation (US-001/US-003) -- PBT full.
 
-Driving ports = the pure functions `validate_weight`, `validate_entry_date`,
-`apply_entry`. Covers C1 (boundaries by construction of the strategies),
-C4 (idempotency), C6a (hostile input), C6c (closed rejection-reason set).
+Driving ports = the pure functions `validate_weight`, `validate_entry_date`.
+Covers C1 (boundaries by construction of the strategies), C6a (hostile input),
+C6c (closed rejection-reason set). Upsert resolution is SQLite `ON CONFLICT` in the
+store, pinned by the acceptance scenarios; no pure twin of it exists any more.
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ from datetime import date, timedelta
 import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
-from state_delta import assert_state_delta, set_to
 
 from weight_tracker.core.types import (
     MAX_DEVICE_SKEW_DAYS,
@@ -21,7 +21,7 @@ from weight_tracker.core.types import (
     Rejected,
     RejectionReason,
 )
-from weight_tracker.core.validation import apply_entry, validate_entry_date, validate_weight
+from weight_tracker.core.validation import validate_entry_date, validate_weight
 
 pytestmark = [pytest.mark.property, pytest.mark.us_001, pytest.mark.us_003]
 
@@ -86,32 +86,3 @@ def test_dates_are_accepted_exactly_up_to_the_device_skew_bound(today, offset):
 def test_unparseable_dates_are_rejected_never_crashing(raw, today):
     result = validate_entry_date(raw, server_utc_today=today)
     assert isinstance(result, (date, Rejected))
-
-
-@given(
-    record=st.dictionaries(days, tenths_in_range, max_size=40),
-    day=days,
-    kg=tenths_in_range,
-)
-@settings(max_examples=100, deadline=None)
-def test_apply_entry_replaces_never_duplicates_and_touches_nothing_else(record, day, kg):
-    result = apply_entry(record, day, kg)
-    universe = {d.isoformat() for d in record} | {day.isoformat()}
-    assert_state_delta(
-        before={d.isoformat(): w for d, w in record.items()} | {day.isoformat(): record.get(day)},
-        after={d.isoformat(): result.get(d) for d in record} | {day.isoformat(): result[day]},
-        universe=universe,
-        expected={day.isoformat(): set_to(kg)},
-    )
-    assert len(result) == len(record) + (0 if day in record else 1)
-
-
-@given(
-    record=st.dictionaries(days, tenths_in_range, max_size=40),
-    day=days,
-    kg=tenths_in_range,
-)
-@settings(max_examples=100, deadline=None)
-def test_apply_entry_is_idempotent(record, day, kg):
-    once = apply_entry(record, day, kg)
-    assert apply_entry(once, day, kg) == once

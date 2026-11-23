@@ -35,6 +35,14 @@ repos:
         files: ^src/weight_tracker/shell/
         stages: [pre-commit, pre-push]
 
+      - id: vulture
+        name: vulture (no dead production code)
+        entry: uv run vulture
+        language: system
+        pass_filenames: false
+        files: ^(src/|scripts/vulture_whitelist\.py|pyproject\.toml)
+        stages: [pre-commit, pre-push]
+
       - id: mypy
         name: mypy (src, strict)
         entry: uv run mypy

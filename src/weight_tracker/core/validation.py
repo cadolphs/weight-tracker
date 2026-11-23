@@ -12,7 +12,6 @@ escape the pure core. `server_utc_today` is a parameter: the core never reads a 
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -85,14 +84,6 @@ def is_backdated(entry_day: date, device_today: date) -> bool:
     speed sample. Both days arrive as parameters: this decision never reads a clock.
     """
     return entry_day != device_today
-
-
-def apply_entry(record: Mapping[date, float], day: date, weight_kg: float) -> dict[date, float]:
-    """Pure upsert resolution: returns the new record with `day` holding exactly `weight_kg`.
-
-    One-entry-per-day invariant: never duplicates, always replaces. All other days unchanged.
-    """
-    return {**record, day: weight_kg}
 
 
 def _latest_plausible_day(server_utc_today: date) -> date:

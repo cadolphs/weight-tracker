@@ -13,6 +13,8 @@ This project follows the **functional programming paradigm** (Functional Core / 
 
 This project uses **per-feature** mutation testing. Runs after refactoring during each delivery, scoped to modified files. Kill rate gate: >= 80%.
 
+Run it with `scripts/mutate.sh <base-ref> [pytest targets...]` from a clean, committed `src/`; the script's header explains the scope, the targets, and how to read survivors.
+
 ## Agent skills
 
 ### Issue tracker
