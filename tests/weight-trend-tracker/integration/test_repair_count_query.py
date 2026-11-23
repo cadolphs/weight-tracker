@@ -19,8 +19,8 @@ Contract (feature-delta.md D-23, ADR-011):
 - A repair is an `entry.saved` event whose payload carries `backdated` true.
   D-23 keeps ONE event per save rather than forking the trail grammar, so the
   flag -- not a second event name -- is what KPI-8 reads.
-- The window is the same rolling frame as every counter beside it: stamped on
-  `since` or any later day.
+- The window is the same rolling frame as every counter beside it: the last
+  seven days inclusive of the report's day.
 - Reading is reading: the query moves nothing on the trail (universe fail-closed).
 """
 
@@ -38,11 +38,15 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from state_delta import assert_state_delta
 
+from weight_tracker.core.trail import EventName, kpi_report
 from weight_tracker.shell.entry_store import SqliteEntryStore
-from weight_tracker.shell.telemetry_store import backdated_saves_since
-from weight_tracker.web.routes import ENTRY_SAVED_EVENT
+
+ENTRY_SAVED_EVENT = EventName.ENTRY_SAVED.value
 
 WINDOW_START = date(2026, 7, 18)
+#: The report frames its week as the last seven days inclusive of today (ADR-015),
+#: so a window opening on WINDOW_START is the report read on its seventh day.
+REPORT_DAY = WINDOW_START + timedelta(days=6)
 
 #: Names that share the trail with saves -- a repair count must ignore all of them,
 #: however their payloads are shaped (the flag alone never makes a repair).
@@ -89,7 +93,7 @@ def _trail_state(db_path: Path) -> dict[str, object]:
         rows = connection.execute("SELECT ts, name, payload FROM events ORDER BY id").fetchall()
     return {
         "trail.rows": rows,
-        "trail.event_count": store.count_events(ENTRY_SAVED_EVENT),
+        "trail.event_count": len(store.all_events()),
         "record.entries": [(entry.day, entry.weight_kg) for entry in store.all_entries()],
     }
 
@@ -117,7 +121,9 @@ def test_repair_count_is_exactly_the_backdated_saves_in_the_window(
         _seed_trail(db_path, trail)
         before = _trail_state(db_path)
 
-        counted = backdated_saves_since(db_path, ENTRY_SAVED_EVENT, WINDOW_START)
+        counted = kpi_report(SqliteEntryStore(db_path).all_events(), today=REPORT_DAY)[
+            "backdated_saves_this_week"
+        ]
 
         assert counted == _repairs_in_window(trail), (
             "KPI-8 counts exactly the saves the record itself calls repairs: an "

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
+from weight_tracker.core.trail import Event
 from weight_tracker.core.types import Entry
 
 
@@ -24,7 +25,7 @@ class ClockPort(Protocol):
 
 
 class EntryStorePort(Protocol):
-    """Driven persistence port: durable entry upsert/read plus the append-only event trail."""
+    """Driven persistence port: durable entry upsert/read (the record)."""
 
     def probe(self) -> None:
         """Startup Earned-Trust probe. Raise on any failure; the app must then refuse to serve."""
@@ -38,10 +39,18 @@ class EntryStorePort(Protocol):
         """Every entry, newest first."""
         ...
 
+
+class TrailPort(Protocol):
+    """Driven persistence port for the trail (ADR-015): the append-only `events`
+    table, written one row at a time and read whole. The one adapter is the
+    SQLite store, which also serves `EntryStorePort` -- the trail lives in the
+    same file as the record (DEVOPS Pre-Requisite 5), never a parallel table.
+    Only `shell/trail.py` speaks to this port."""
+
     def append_event(self, ts: str, name: str, payload: str) -> None:
-        """Append one telemetry event (KPI trail, append-only)."""
+        """Append one event row: ISO-8601 UTC timestamp, on-trail name, JSON payload."""
         ...
 
-    def count_events(self, name: str) -> int:
-        """Number of events recorded under `name`."""
+    def all_events(self) -> list[Event]:
+        """Every event on the trail, parsed, in append order."""
         ...
