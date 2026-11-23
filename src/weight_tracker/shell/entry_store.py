@@ -186,15 +186,6 @@ class SqliteEntryStore:
             )
             connection.commit()
 
-    def entries_between(self, start: date, end: date) -> list[Entry]:
-        with closing(self._connect()) as connection:
-            rows = connection.execute(
-                "SELECT date, weight_kg, entry_ms FROM entries"
-                " WHERE date BETWEEN ? AND ? ORDER BY date DESC",
-                (start.isoformat(), end.isoformat()),
-            ).fetchall()
-        return [_entry_from_row(row) for row in rows]
-
     def all_entries(self) -> list[Entry]:
         with closing(self._connect()) as connection:
             rows = connection.execute(

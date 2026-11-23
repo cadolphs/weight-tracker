@@ -11,46 +11,9 @@ only for read-back), captures the port-exposed universe (Mandate 8), restarts th
 app over the same record, and owns ADR-014's one fault-injection door. It knows no
 page grammar and no service; `composition.py` adds the typed services on top.
 
-HTTP surface contract (executable spec for DELIVER -- see build_app docstring):
-    POST /login {passphrase}                 -> 200 + session cookie | 401 | 429 (throttled)
-    GET  /entries?scale=<1W|1M|3M|6M|1Y|ALL> -> {"entries":[{"date","weight_kg"}...newest first],
-                                                 "invite_first_log": bool,
-                                                 "y_range": [lo, hi] | null}
-                                                (y_range = the honest axis for the
-                                                 windowed raw values, ADR-012: additive,
-                                                 key ALWAYS present, null iff nothing is
-                                                 plotted; every other key byte-identical)
-    POST /entries {date, weight, entry_ms?,
-                   today?}                   -> {"outcome":"saved","confirmation":...,
-                                                 "date","weight_kg"}
-                                              (`today` = the phone's own day, ADR-011:
-                                               additive, optional, backward-compatible;
-                                               absent/garbled falls back to the server's
-                                               UTC day and NEVER 400s. A save whose date
-                                               is not the claimed day is BACKDATED: its
-                                               entry_ms is withheld (0 KPI-1 samples) and
-                                               its entry.saved payload carries
-                                               "backdated": true)
-                                              | {"outcome":"rejected",
-                                                 "reason":<RejectionReason value>,
-                                                 "echo":<raw input>}   (401 when locked)
-    GET  /trend?scale=...                    -> {"points":[{"date","trend_kg"}...],
-                                                 "y_range": [lo, hi] | null}
-                                                (pure read, ADR-009 -- no event; y_range
-                                                 over the windowed trend values, same
-                                                 rule as /entries -- ONE rule, D7/A29)
-    GET  /graph?view=trend|raw&scale=...     -> HTML with data-view=... data-scale=...
-                                                (+1 trend.study.opened per open)
-    GET  /                                   -> entry screen HTML (autofocus, inputmode="decimal",
-                                                "yesterday: X kg" when it exists)
-    GET  /stats                              -> {"entry_logged_count","trend_view_opened_count",
-                                                 "trend_views_this_week" (both frozen-historical
-                                                 since ADR-009), "trend_study_this_week",
-                                                 "home_graph_shown_this_week",
-                                                 "backdated_saves_this_week" (KPI-8 repairs),
-                                                 "speed":{"median_ms","p90_ms","sample_count"}}
-    GET  /healthz                            -> 200 {"status":"ok",...} without auth
-    GET  /manifest.webmanifest               -> 200 PWA manifest
+The HTTP surface contract (routes, request and response shapes, status codes) has ONE
+source: the `build_app` docstring in `weight_tracker.composition`. Read it there; this
+module restates none of it.
 """
 
 from __future__ import annotations

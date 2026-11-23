@@ -21,6 +21,7 @@ dev = [
     "mypy>=1.16",
     "import-linter>=2.3",
     "pre-commit>=4.0",
+    "vulture>=2.14",
 ]
 
 [build-system]
@@ -63,6 +64,14 @@ markers = [
 
 # --- Static gates (DEVOPS pipeline outline; local gates mirror CI commit stage) ---
 
+[tool.vulture]
+# Dead production code gate: a function with no caller is a finding, not a neutral default
+# (retro 2026-11-23 found two). Framework-wired callables are excluded by decorator; names
+# consumed only outside src/ are listed, with their consumer, in the whitelist.
+paths = ["src", "scripts/vulture_whitelist.py"]
+min_confidence = 60
+ignore_decorators = ["@router.*", "@app.middleware"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
@@ -70,6 +79,10 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# A vulture whitelist is a list of bare names by design; it is never executed.
+"scripts/vulture_whitelist.py" = ["B018", "F821"]
 
 [tool.mypy]
 # DEVOPS outline says `mypy --strict`; scoped to src/ (production code). Test code
