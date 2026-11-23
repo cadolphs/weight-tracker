@@ -15,6 +15,7 @@ convention across two call sites:
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import date
 
 import pytest
@@ -97,3 +98,13 @@ def test_an_empty_record_has_an_empty_picture():
     assert picture.recent_head == ()
     assert picture.record_weights == {}
     assert picture.earliest_pickable_day is None
+
+
+def test_a_picture_cannot_be_edited_after_the_fact():
+    """The picture is FROZEN (ADR-005 / ADR-014): one value is handed to the glance
+    line, the recent rows, the save hand-back and the prefill map in the same
+    request, so a picture that could be rewritten between two of those readers
+    is how one screen would start telling two stories about the same day."""
+    picture = picture_of([Entry(day=date(2026, 7, 24), weight_kg=77.2)])
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        picture.glance = None
