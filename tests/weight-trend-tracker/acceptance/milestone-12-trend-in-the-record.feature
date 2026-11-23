@@ -9,7 +9,8 @@ Feature: The trend has a readable history
   reports, read at each entry's own day (ADR-004/ADR-013: derived, never
   stored, revised retrospectively when a past day is backfilled). One row
   definition serves both surfaces and the in-place repaint; a failing trend
-  empties the trend cells and nothing else.
+  empties the trend cells and the glance line (one picture, ADR-014); the raw
+  record stands.
 
   Background:
     Given the tracker is running with an empty record

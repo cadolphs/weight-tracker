@@ -98,7 +98,7 @@ from fake_clock import FakeClock
 from state_delta import assert_state_delta, set_to, unchanged
 
 from weight_tracker.composition import StartupRefused, build_app
-from weight_tracker.core.trend import trend_series, trend_series_in
+from weight_tracker.core.trend import trend_series, windowed_series
 from weight_tracker.core.types import Entry, entries_in_window
 
 UNIVERSE = {
@@ -131,6 +131,9 @@ class TrackerComposition:
         self.device_day: date | None = None  # phone-local day override (timezone skew)
         self.passphrase_hash = PasswordHasher().hash(TEST_PASSPHRASE)
         self._app: Any = None
+        #: ADR-014's one fault-injection door: the picture override handed to
+        #: build_app. None = production wiring; a raising callable = a failing picture.
+        self.picture_of: Any = None
         self._actor: Any = None
         self._observer: Any = None
         self.access = AccessService(self)
@@ -158,13 +161,27 @@ class TrackerComposition:
 
     def _build(self) -> Any:
         if self._app is None:
+            overrides = {} if self.picture_of is None else {"picture_of": self.picture_of}
             self._app = build_app(
                 db_path=self.db_path,
                 clock=self.fake_clock,
                 passphrase_hash=self.passphrase_hash,
                 session_signing_key=SESSION_SIGNING_KEY,
+                **overrides,
             )
         return self._app
+
+    def break_picture(self) -> None:
+        """The picture cannot be computed (ADR-014): rebuild the app through its own
+        seam with a raising `picture_of`. No module attribute is touched -- the test
+        crosses the interface the degrade boundary owns, so it holds whatever the
+        crafter's import style."""
+
+        def failing_picture(*_args: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError("picture failed (injected fault)")
+
+        self.picture_of = failing_picture
+        self.system.restart()
 
     def actor(self) -> Any:
         from fastapi.testclient import TestClient
@@ -922,22 +939,10 @@ class GlanceService(_Service):
         ctx.glance_before = self.capture()
 
     def break_computation(self, monkeypatch: Any) -> None:
-        """Inject a failing glance callable, then restart so the wiring picks it up.
-
-        All plausible bindings are patched (module of definition + composition/route
-        rebinding sites) so the injection holds regardless of the crafter's import style.
-        """
-
-        def failing_glance(*_args: Any, **_kwargs: Any) -> Any:
-            raise RuntimeError("glance computation failed (injected fault)")
-
-        for target in (
-            "weight_tracker.core.glance.glance",
-            "weight_tracker.composition.glance",
-            "weight_tracker.web.routes.glance",
-        ):
-            monkeypatch.setattr(target, failing_glance, raising=False)
-        self.comp.system.restart()
+        """The glance is one derivation inside the picture (ADR-014): a failing
+        trend takes the glance line with it. `monkeypatch` is kept for the step
+        signature; nothing is patched."""
+        self.comp.break_picture()
 
     def deliver_mornings(self, mornings: int) -> None:
         for _ in range(mornings):
@@ -1538,18 +1543,9 @@ class HomeGraphService(_Service):
 
     def break_series(self, monkeypatch: Any) -> None:
         """The trend series computation fails: the graph data reads must degrade
-        (absent area client-side) while entry, save, and confirmation are untouched."""
-
-        def failing_series(*_args: Any, **_kwargs: Any) -> Any:
-            raise RuntimeError("injected trend-series failure (acceptance fault injection)")
-
-        for target in (
-            "weight_tracker.core.trend.trend_series",
-            "weight_tracker.web.routes.trend_series_in",
-            "weight_tracker.composition.trend_series",
-        ):
-            monkeypatch.setattr(target, failing_series, raising=False)
-        self.comp.system.restart()
+        (absent area client-side) while entry, save, and confirmation are untouched.
+        The series lives in the picture (ADR-014); nothing is patched."""
+        self.comp.break_picture()
 
     def series_read_admits_trouble(self, ctx: SimpleNamespace) -> None:
         before = self.comp.study.trail_counts()
@@ -1795,20 +1791,9 @@ class TrendRowsService(_Service):
     # -- fault injection ----------------------------------------------------------
 
     def break_projection(self, monkeypatch: Any) -> None:
-        """Inject a failing day-to-trend projection, then restart so the wiring picks
-        it up. Every plausible binding is patched (module of definition + composition
-        and route rebinding sites), the `break_computation` precedent (D-13)."""
-
-        def failing_projection(*_args: Any, **_kwargs: Any) -> Any:
-            raise RuntimeError("trend_by_day failed (injected fault)")
-
-        for target in (
-            "weight_tracker.core.trend.trend_by_day",
-            "weight_tracker.composition.trend_by_day",
-            "weight_tracker.web.routes.trend_by_day",
-        ):
-            monkeypatch.setattr(target, failing_projection, raising=False)
-        self.comp.system.restart()
+        """The day-keyed trend is one derivation inside the picture (ADR-014);
+        a failing picture empties every trend cell. Nothing is patched."""
+        self.comp.break_picture()
 
     # -- assertions ---------------------------------------------------------------
 
@@ -2630,7 +2615,10 @@ class AxisService(_Service):
         reading, today = ctx.axis, self.comp.device_day or self.comp.fake_clock.today()
         stored = self._stored_newest_first()
         if reading.lens is ViewMode.TREND:
-            expected = [round(p.trend_kg, 9) for p in trend_series_in(stored, reading.scale, today)]
+            expected = [
+                round(p.trend_kg, 9)
+                for p in windowed_series(trend_series(stored), reading.scale, today)
+            ]
         else:
             expected = [e.weight_kg for e in entries_in_window(stored, reading.scale, today)]
         assert [round(v, 9) for v in reading.values] == expected, (

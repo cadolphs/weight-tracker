@@ -1,9 +1,9 @@
 """Pure-core properties for the entries-list rows (US-011, A18/D-18; trend column
 US-016, D-35) -- PBT full.
 
-Driving port = the pure functions `entry_row` and `recent_entry_rows` (their
-signatures ARE the port; pure functions are the exempt single-output category,
-so no state-delta universe applies -- there is no adjacent state).
+Driving port = the pure functions `entry_row` and `recent_entry_rows` over a
+`Picture` (ADR-014; their signatures ARE the port; pure functions are the exempt
+single-output category, so no state-delta universe applies -- there is no adjacent state).
 
 DISTILL-pinned contract, as properties:
 
@@ -31,13 +31,9 @@ import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
+from weight_tracker.core.picture import RECENT_LIST_ENTRIES, Picture, picture_of
 from weight_tracker.core.types import Entry
-from weight_tracker.web.routes import (
-    ENTRY_COLUMN_HEADINGS,
-    RECENT_LIST_ENTRIES,
-    entry_row,
-    recent_entry_rows,
-)
+from weight_tracker.web.views import ENTRY_COLUMN_HEADINGS, entry_row, recent_entry_rows
 
 pytestmark = [pytest.mark.property, pytest.mark.us_011, pytest.mark.us_016]
 
@@ -143,11 +139,18 @@ def test_no_cell_ever_carries_the_unit(kg, trend):
 # ---------------------------------------------------------------- the pure slice
 
 
+def picture_with(entries: list[Entry], smoothed: dict[date, float]) -> Picture:
+    """The picture of these entries with the trend column REPLACED by a synthetic
+    day-keyed mapping, so the row properties can probe the lookup (by day, never by
+    position; empty under degrade) without depending on the smoothing's values."""
+    return dataclasses.replace(picture_of(entries), trend_by_day=smoothed)
+
+
 @given(record=record_with_trend())
 @settings(max_examples=100, deadline=None)
 def test_the_recent_list_is_capped_at_seven_and_honest_below_it(record):
     entries, smoothed = record
-    rows = recent_entry_rows(entries, smoothed)
+    rows = recent_entry_rows(picture_with(entries, smoothed))
     assert len(rows) == min(len(entries), RECENT_LIST_ENTRIES), (
         "the recent list must show the last 7 ENTRIES, or every entry a young record has"
     )
@@ -157,7 +160,7 @@ def test_the_recent_list_is_capped_at_seven_and_honest_below_it(record):
 @settings(max_examples=100, deadline=None)
 def test_rows_mirror_the_head_of_the_record_in_order(record):
     entries, smoothed = record
-    rows = recent_entry_rows(entries, smoothed)
+    rows = recent_entry_rows(picture_with(entries, smoothed))
     for row, entry in zip(rows, entries, strict=False):
         assert row == entry_row(entry.day, entry.weight_kg, smoothed[entry.day]), (
             "every row must equal the stored entry it renders, newest first (single source)"
@@ -168,7 +171,7 @@ def test_rows_mirror_the_head_of_the_record_in_order(record):
 @settings(max_examples=100, deadline=None)
 def test_nothing_past_the_seventh_entry_is_ever_shown(record):
     entries, smoothed = record
-    shown = {row.day_text for row in recent_entry_rows(entries, smoothed)}
+    shown = {row.day_text for row in recent_entry_rows(picture_with(entries, smoothed))}
     for older in entries[RECENT_LIST_ENTRIES:]:
         assert f"{older.day:%a} {older.day.day} {older.day:%b}" not in shown, (
             f"{older.day} lies past the seventh entry and must be absent (A18)"
@@ -183,7 +186,9 @@ def test_the_trend_is_looked_up_by_day_never_by_position(record):
     correct here (the sharpest way this could silently break, A36)."""
     entries, smoothed = record
     reversed_map = dict(reversed(list(smoothed.items())))
-    assert recent_entry_rows(entries, smoothed) == recent_entry_rows(entries, reversed_map)
+    assert recent_entry_rows(picture_with(entries, smoothed)) == recent_entry_rows(
+        picture_with(entries, reversed_map)
+    )
 
 
 @given(entries=newest_first_entries())
@@ -191,8 +196,8 @@ def test_the_trend_is_looked_up_by_day_never_by_position(record):
 def test_an_empty_mapping_costs_only_the_trend_column(entries):
     """The degrade path has no branch of its own (D-34): an empty mapping is the
     whole mechanism, and it must leave every other cell exactly as it was."""
-    rows = recent_entry_rows(entries, {})
-    full = recent_entry_rows(entries, {e.day: 77.0 for e in entries})
+    rows = recent_entry_rows(picture_with(entries, {}))
+    full = recent_entry_rows(picture_with(entries, {e.day: 77.0 for e in entries}))
     assert [row.trend_text for row in rows] == [""] * len(rows)
     assert [(r.day_text, r.raw_text) for r in rows] == [(f.day_text, f.raw_text) for f in full]
 
@@ -211,4 +216,4 @@ def test_a_rendered_row_cannot_be_edited_after_the_fact(day, kg, trend):
 
 
 def test_an_empty_record_yields_no_rows():
-    assert recent_entry_rows([], {}) == []
+    assert recent_entry_rows(picture_with([], {})) == []

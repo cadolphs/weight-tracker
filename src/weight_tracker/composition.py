@@ -18,8 +18,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from weight_tracker.core.glance import glance
-from weight_tracker.core.trend import trend_by_day, trend_series_in
+from weight_tracker.core.picture import picture_of as production_picture_of
 from weight_tracker.ports import ClockPort
 from weight_tracker.shell.access_gate import AccessGate, install_access_gate
 from weight_tracker.shell.entry_store import SqliteEntryStore, replication_status
@@ -28,7 +27,7 @@ from weight_tracker.shell.telemetry_store import (
     count_events_since,
     entry_ms_samples_since,
 )
-from weight_tracker.web.routes import build_router
+from weight_tracker.web.routes import PictureProjection, build_router
 
 
 def build_app(
@@ -36,8 +35,16 @@ def build_app(
     clock: ClockPort,
     passphrase_hash: str,
     session_signing_key: str,
+    *,
+    picture_of: PictureProjection = production_picture_of,
 ) -> Any:
     """Build the production ASGI app (FastAPI).
+
+    `picture_of` is the ONE fault-injection door (ADR-014): production passes
+    nothing and gets the core's picture; the acceptance composition passes a
+    raising callable to exercise the degrade boundary through the seam that owns
+    it. It is a door, never a fake -- Pillar 3 ("only the Clock is injected")
+    still describes every adapter.
 
     - Opens/creates the SQLite store at db_path (WAL, synchronous=FULL) and runs its
       startup probe; probe failure => raise StartupRefused (no traffic served).
@@ -63,7 +70,7 @@ def build_app(
                                          (saved responses carry "glance" display text for the
                                          in-place refresh; delivery emits trend_glance_shown)
         GET  /entries?scale=...          WeightHistory.entries_in(window)
-        GET  /trend?scale=...            TrendProjection.trend_series_in(window)
+        GET  /trend?scale=...            TrendProjection: the picture's series, windowed
                                          (a PURE READ since ADR-009: the trend_view_opened
                                          emission is retired -- deliberate study is counted
                                          on /graph opens and the study beacon)
@@ -90,9 +97,7 @@ def build_app(
             store=store,
             gate=gate,
             clock=clock,
-            trend_series_in=trend_series_in,
-            glance_summary_of=glance,
-            trend_by_day=trend_by_day,
+            picture_of=picture_of,
             count_events_since=partial(count_events_since, db_path),
             entry_ms_samples_since=partial(entry_ms_samples_since, db_path),
             backdated_saves_since=partial(backdated_saves_since, db_path),

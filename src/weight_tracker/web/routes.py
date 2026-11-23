@@ -20,8 +20,7 @@ from __future__ import annotations
 import json
 import statistics
 import sys
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -31,17 +30,16 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from weight_tracker.core.axis import AxisRange, y_axis_range
-from weight_tracker.core.glance import GlanceSummary, quantize_rate, rate_glyph
+from weight_tracker.core.axis import y_axis_range
+from weight_tracker.core.picture import Picture, trendless_picture_of
+from weight_tracker.core.trend import windowed_series
 from weight_tracker.core.types import (
     Entry,
     Rejected,
     RejectionReason,
     Saved,
     TimeScale,
-    TrendPoint,
     ViewMode,
-    day_label,
     entries_in_window,
     parse_time_scale,
     window_start,
@@ -66,6 +64,15 @@ from weight_tracker.shell.access_gate import (
 )
 from weight_tracker.shell.access_gate import (
     Rejected as PassphraseRejected,
+)
+from weight_tracker.web.views import (
+    ENTRY_COLUMN_HEADINGS,
+    axis_range_wire,
+    complete_record_rows,
+    entry_wire_pair,
+    glance_display_text,
+    recent_entries_payload,
+    recent_entry_rows,
 )
 
 ENTRY_SAVED_EVENT = "entry.saved"
@@ -114,20 +121,11 @@ def parse_study_signal(body: object) -> dict[str, str] | None:
     return {field: body[field] for field in STUDY_VOCABULARY}
 
 
-#: TrendProjection driving port: read-only, derived-never-stored (ADR-004) -- a pure
-#: function of the FULL entry set, windowed on the output. Wired at the composition root.
-TrendProjection = Callable[[Sequence[Entry], TimeScale, date], list[TrendPoint]]
-
-#: GlanceProjection driving port: read-only, derived-never-stored (ADR-006) -- a pure
-#: function of the FULL entry set. Wired at the composition root (D-13); the glance
-#: path never touches GET /trend (KPI-3 separation is structural).
-GlanceProjection = Callable[[Sequence[Entry]], GlanceSummary | None]
-
-#: TrendByDayProjection driving port: read-only, derived-never-stored (ADR-013) -- the
-#: SAME smoothed series the chart plots and the glance reports, addressable by day, so
-#: an entries-list row can carry its own trend value. A pure function of the FULL entry
-#: set; wired at the composition root as the third read-only callable (ADR-006 precedent).
-TrendByDayProjection = Callable[[Sequence[Entry]], Mapping[date, float]]
+#: PictureProjection driving port (ADR-014): read-only, derived-never-stored -- ONE
+#: pure function of the FULL entry set yielding everything the pages know about the
+#: record. Wired at the composition root; the only fault-injection door the
+#: acceptance composition uses.
+PictureProjection = Callable[[Sequence[Entry]], Picture]
 
 #: Shell translation of the core's closed RejectionReason set into inline messages (C6b/C6c).
 #: The core judges; the shell phrases. No validation logic lives here.
@@ -226,194 +224,6 @@ PWA_MANIFEST: dict[str, Any] = {
 }
 
 
-def glance_display_text(summary: GlanceSummary) -> str:
-    """ADR-006 pinned display: `Trend: {value:.1f} kg` with the rate segment
-    ` · {glyph}{abs:.2f} kg/week` (glyph directly prefixing the quantized
-    magnitude) once the 7-day entry span is earned. The core judges the numbers;
-    this shell only phrases them."""
-    value_text = f"Trend: {summary.trend_kg:.1f} kg"
-    if summary.rate_kg_per_week is None:
-        return value_text
-    quantized_rate = quantize_rate(summary.rate_kg_per_week)
-    return f"{value_text} · {rate_glyph(quantized_rate)}{abs(quantized_rate):.2f} kg/week"
-
-
-def record_weights_map(entries: Sequence[Entry]) -> dict[str, float]:
-    """The WHOLE record as {iso_day: kg} for the entry screen's inline script --
-    ONE map answering both the yesterday anchor and the edit prefill (ADR-010),
-    so the two can never disagree about a day.
-
-    Why the phone resolves its own day against it: the client picks the
-    DEVICE-local yesterday out of this map (A5 extended to reads) -- the server
-    never guesses the phone's calendar frame.
-
-    Why the whole record and not a window: a March 2026 entry must still prefill
-    in 2028 (A24), so any bound fails by construction. It costs nothing to serve
-    -- a pure projection of the single all_entries() read GET / already performs,
-    beside date_row_earliest_day and recent_entry_rows (zero added I/O, zero
-    port changes). ADR-010 quantifies the byte cost (~5.6 KB/yr) and pins the
-    ~2,000-entry reversal trigger.
-
-    A day with no entry is simply ABSENT -- never a sentinel, never a zero -- so
-    the client offers a gap as a gap and can never overwrite one blindly."""
-    return {entry.day.isoformat(): entry.weight_kg for entry in entries}
-
-
-def _one_calendar_year_earlier(day: date) -> date:
-    """The same day of the same month, a year back. 29 February has no counterpart
-    in a common year and settles on the 28th rather than drifting into March --
-    a year of slack either way, never a day of silent calendar arithmetic."""
-    try:
-        return day.replace(year=day.year - 1)
-    except ValueError:
-        return day.replace(year=day.year - 1, day=28)
-
-
-def date_row_earliest_day(entries: Sequence[Entry]) -> date | None:
-    """How far back the date row may reach: the record's FIRST day minus one
-    calendar year -- None while there is no record to reach back into (D-25).
-
-    Why a bound exists at all (OQ-11), because it reads like a business rule and
-    is not one: the trend grid spans first->last entry day, so a single mistyped
-    year (2026 -> 2016) would permanently stretch every recompute to ~3,650 grid
-    points, and entry deletion is out of scope -- recovery would be manual SQL.
-    This is a cheap guard against that, UX assist only: `validate_entry_date`
-    remains the sole authority on what may be saved, and widening the bound later
-    is one attribute.
-
-    Why the year of slack: a bound sitting exactly on the record's first day
-    would refuse the very repair of a mistyped FIRST morning. A year is
-    comfortably more room than the habit needs and far less than a typo costs.
-
-    Why the tail: `all_entries()` serves newest-first, so the record BEGINS at
-    `entries[-1]`. A pure projection of the single read GET / already performs,
-    beside `record_weights_map` and `recent_entry_rows` -- zero added I/O, zero
-    port changes. An empty record yields no bound at all: no sentinel day, no
-    empty-string attribute, simply nothing rendered."""
-    if not entries:
-        return None
-    return _one_calendar_year_earlier(entries[-1].day)
-
-
-#: The recent list's depth (US-011, A18): the last 7 ENTRIES, never days --
-#: missing days are simply absent because entries, not calendar days, are sliced.
-RECENT_LIST_ENTRIES = 7
-
-
-def recent_head(entries: Sequence[Entry]) -> Sequence[Entry]:
-    """THE newest-first seven-entry slice (D-18/D-19, 01-04's one slice): the
-    front page's recent list and the save response's hand-back both read this
-    single head, so the two surfaces cannot drift apart."""
-    return entries[:RECENT_LIST_ENTRIES]
-
-
-#: The two weight columns' headings. `kg` is stated ONCE per column (D-38), never
-#: in a cell, so `unit_label_kg` keeps a single source per rendered table.
-ENTRY_COLUMN_HEADINGS = ("Date", "Raw (kg)", "Trend (kg)")
-
-
-@dataclass(frozen=True)
-class EntryRow:
-    """The ONE row every entries list speaks (A18 as revised by US-016, Mandate-12):
-    the day, the raw weight, the smoothed trend weight -- each already phrased, so a
-    template places cells and formats nothing. The front page's last-7 list and the
-    History page's complete record are the same rows, cut to different lengths."""
-
-    day_text: str
-    raw_text: str
-    trend_text: str
-
-
-#: Rendered precision per column (A35, retuned at DELIVER dogfood -- OQ-15 closed).
-#: The raw weight is shown at the scale's OWN 0.1 kg: a second digit there would be
-#: invented, because the scale never measured it. The smoothed trend is shown at
-#: 0.01 kg because it is a DERIVED value with real resolution below 0.1, and the
-#: filter is damped enough that a week of genuine movement is often ~0.05 kg -- at
-#: one decimal a whole front-page week printed the same digits seven times and the
-#: column read as frozen, which is the exact failure OQ-15 named as its falsifier.
-RAW_DECIMALS = 1
-TREND_DECIMALS = 2
-
-
-def entry_row(day: date, weight_kg: float, trend_kg: float | None) -> EntryRow:
-    """One row: 'Fri 24 Jul', '82.2', '82.43'.
-
-    The two columns speak different precisions on purpose (A35): the raw weight
-    at the scale's own 0.1 kg, the trend at 0.01 kg so slow movement is legible.
-    Both are the SAME underlying numbers the chart plots and the glance reports --
-    the glance's `Trend: 82.4 kg` is this row's 82.43 at one decimal, never a
-    second computation (A36).
-
-    A trend the projection could not supply renders as an EMPTY cell (D-34/A37):
-    never a zero, never a stale value, never a copy of the raw weight."""
-    return EntryRow(
-        day_text=day_label(day),
-        raw_text=f"{weight_kg:.{RAW_DECIMALS}f}",
-        trend_text="" if trend_kg is None else f"{trend_kg:.{TREND_DECIMALS}f}",
-    )
-
-
-def entry_rows(entries: Sequence[Entry], trend_by_day: Mapping[date, float]) -> list[EntryRow]:
-    """Rows for exactly these entries, in the order given. The trend is looked up
-    with `.get`, which is why no degrade branch exists anywhere in this path: an
-    empty mapping (D-34) renders empty trend cells and leaves everything else
-    standing, and a day off the grid -- impossible by A32 -- degrades the same way."""
-    return [entry_row(entry.day, entry.weight_kg, trend_by_day.get(entry.day)) for entry in entries]
-
-
-def recent_entry_rows(
-    entries: Sequence[Entry], trend_by_day: Mapping[date, float]
-) -> list[EntryRow]:
-    """The last 7 entries as display rows, newest first: a pure slice of the
-    newest-first all_entries() read the front page already performs (D-18,
-    zero port changes). Fewer entries -> a shorter list; none -> no rows."""
-    return entry_rows(recent_head(entries), trend_by_day)
-
-
-def complete_record_rows(
-    entries: Sequence[Entry], trend_by_day: Mapping[date, float]
-) -> list[EntryRow]:
-    """The COMPLETE record as display rows, newest first (US-012, D-17): the
-    whole all_entries() read, never windowed by the chart's selected scale.
-    Same one row definition as the front page's recent list (Mandate-12)."""
-    return entry_rows(entries, trend_by_day)
-
-
-def entry_wire_pair(entry: Entry) -> dict[str, Any]:
-    """The ONE {date, weight_kg} wire shape an entry travels as: the /entries
-    read-back and the save's `recent` hand-back speak it from this single place
-    (D-18 single source -- the two surfaces must tell the same story)."""
-    return {"date": entry.day.isoformat(), "weight_kg": entry.weight_kg}
-
-
-def axis_range_wire(axis: AxisRange | None) -> list[float] | None:
-    """The ONE place the honest axis becomes its wire shape (ADR-012, D-31):
-    `[lo, hi]` when something is plotted, `null` when nothing is. Route-level
-    enrichment beside the series reads -- never a port widening."""
-    if axis is None:
-        return None
-    return [axis.lo_kg, axis.hi_kg]
-
-
-def recent_entries_payload(
-    entries: Sequence[Entry], trend_by_day: Mapping[date, float]
-) -> list[dict[str, Any]]:
-    """The save response's `recent` hand-back (D-19): the SAME newest-first
-    seven-entry slice the front page renders (01-04's one slice), spoken as
-    {date, weight_kg} wire pairs for the client's in-place list repaint --
-    route-level enrichment on the glance/confirmation precedent, port untouched.
-
-    Each pair carries an additive `trend_kg` (always present, null under degrade)
-    so the repaint can rebuild the trend column without a second fetch and without
-    a second lookup (ADR-013 / D-37). This is the ONLY place the trend reaches the
-    wire: `GET /entries` is the raw lens's read and stays untouched -- the trend
-    lens has `/trend`, and one series must never travel two paths (A36)."""
-    return [
-        {**entry_wire_pair(entry), "trend_kg": trend_by_day.get(entry.day)}
-        for entry in recent_head(entries)
-    ]
-
-
 def speed_summary(samples: Sequence[int]) -> dict[str, Any]:
     """KPI-1 speed report over client-measured entry durations: median, p90, count.
 
@@ -463,15 +273,11 @@ def _log_auth_event(name: str) -> None:
     _log_structured({"event": name})
 
 
-def _log_glance_degraded(failure: Exception) -> None:
-    """Structured degrade trail: the glance failed and was hidden, never silently."""
-    _log_structured({"event": "trend.glance.degraded", "error": str(failure)})
-
-
-def _log_trend_rows_degraded(failure: Exception) -> None:
-    """Structured degrade trail: the day-to-trend projection failed, so the lists
-    render their raw column with empty trend cells (D12/A37) -- never silently."""
-    _log_structured({"event": "trend.rows.degraded", "error": str(failure)})
+def _log_picture_degraded(failure: Exception) -> None:
+    """Structured degrade trail (ADR-014): the picture failed, so the glance line
+    is hidden and the lists render their raw column with empty trend cells
+    (D12/A37) -- never silently."""
+    _log_structured({"event": "picture.degraded", "error": str(failure)})
 
 
 def _log_study_append_degraded(failure: Exception) -> None:
@@ -486,9 +292,7 @@ def build_router(
     store: EntryStorePort,
     gate: AccessGate,
     clock: ClockPort,
-    trend_series_in: TrendProjection,
-    glance_summary_of: GlanceProjection,
-    trend_by_day: TrendByDayProjection,
+    picture_of: PictureProjection,
     count_events_since: Callable[[str, date], int],
     entry_ms_samples_since: Callable[[str, date], list[int]],
     backdated_saves_since: Callable[[str, date], int],
@@ -496,44 +300,31 @@ def build_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    def glance_or_degrade(entries: Sequence[Entry]) -> GlanceSummary | None:
-        """Shell containment (D-13): a failing glance projection degrades to no
-        glance -- absent line on the render, null on the save -- on BOTH delivery
-        surfaces. The morning entry and the save are never blocked by the trend;
-        the core stays pure and exception-free by contract, so any raise here is
-        an injected/infrastructure fault, logged and swallowed at this boundary."""
+    def picture_or_degrade(entries: Sequence[Entry]) -> Picture:
+        """Shell containment, ONE boundary (ADR-014; D-13/D-34 unified): a failing
+        picture degrades to the TRENDLESS picture -- no glance line on the render,
+        null glance and null trend cells on the save, empty trend cells in every
+        list -- while the raw record, the prefill map and the date row stand. The
+        morning entry and the save are never blocked by the trend; the core is pure
+        and exception-free by contract, so any raise here is an injected or
+        infrastructure fault, logged and swallowed at this boundary."""
         try:
-            return glance_summary_of(entries)
+            return picture_of(entries)
         except Exception as failure:
-            _log_glance_degraded(failure)
-            return None
+            _log_picture_degraded(failure)
+            return trendless_picture_of(entries)
 
-    def trend_by_day_or_degrade(entries: Sequence[Entry]) -> Mapping[date, float]:
-        """Shell containment (D-34, the `glance_or_degrade` sibling): a failing
-        day-to-trend projection degrades to an EMPTY mapping, so every row keeps
-        its date and raw weight and loses only its trend cell. The row builder
-        needs no degrade branch at all -- a missing key is already an empty cell --
-        and the entry form, the save path and the chart are untouched. The core is
-        pure and exception-free by contract, so any raise here is an injected or
-        infrastructure fault: logged, then swallowed at this boundary."""
-        try:
-            return trend_by_day(entries)
-        except Exception as failure:
-            _log_trend_rows_degraded(failure)
-            return {}
-
-    def deliver_glance(entries: Sequence[Entry]) -> str | None:
+    def deliver_glance(picture: Picture) -> str | None:
         """One glance delivery (D-14): the display text when a glance exists, paired
         with exactly one trend.glance.shown event; None (and no event) with no data
-        or on a degraded computation. No per-day dedup -- KPI-5 pairing is computed
+        or on a trendless picture. No per-day dedup -- KPI-5 pairing is computed
         at read time on /stats."""
-        summary = glance_or_degrade(entries)
-        if summary is None:
+        if picture.glance is None:
             return None
         store.append_event(
             ts=clock.now_utc().isoformat(), name=TREND_GLANCE_SHOWN_EVENT, payload="{}"
         )
-        return glance_display_text(summary)
+        return glance_display_text(picture.glance)
 
     @router.post("/login")
     async def login(request: Request) -> Response:
@@ -588,6 +379,7 @@ def build_router(
         first day minus a year. All three are UX assist; the save path's
         no-future rule is untouched and still authoritative."""
         entries = store.all_entries()
+        picture = picture_or_degrade(entries)
         if entries:
             # Ambient graph presence (ADR-009, KPI-7): a data-available-at-render
             # proxy, the glance precedent (Q3) -- entries exist, so the morning
@@ -600,11 +392,11 @@ def build_router(
             request=request,
             name="index.html",
             context={
-                "record_weights": record_weights_map(entries),
-                "earliest_pickable_day": date_row_earliest_day(entries),
+                "record_weights": picture.record_weights,
+                "earliest_pickable_day": picture.earliest_pickable_day,
                 "entry_columns": ENTRY_COLUMN_HEADINGS,
-                "recent_entries": recent_entry_rows(entries, trend_by_day_or_degrade(entries)),
-                "glance_text": deliver_glance(entries),
+                "recent_entries": recent_entry_rows(picture),
+                "glance_text": deliver_glance(picture),
             },
         )
 
@@ -662,7 +454,9 @@ def build_router(
             ),
         )
         saved = Saved(day=day, weight_kg=weight_kg)
-        refreshed = store.all_entries()  # newest first, the just-saved day on top
+        # One picture of the refreshed record (ADR-014): the glance and the recent
+        # hand-back below read the same smoothing, so they cannot disagree.
+        picture = picture_or_degrade(store.all_entries())
         return {
             "outcome": "saved",
             "confirmation": saved.confirmation,
@@ -670,9 +464,9 @@ def build_router(
             "weight_kg": weight_kg,
             # In-place refresh (D-13): the glance recomputed with today's entry rides
             # on the save response -- a route-level concern, never a port widening.
-            "glance": deliver_glance(refreshed),
+            "glance": deliver_glance(picture),
             # In-place list repaint (D-19, same read): the refreshed recent head.
-            "recent": recent_entries_payload(refreshed, trend_by_day_or_degrade(refreshed)),
+            "recent": recent_entries_payload(picture),
         }
 
     @router.get("/entries")
@@ -700,7 +494,10 @@ def build_router(
         `y_range` is the honest axis over exactly these points (ADR-012)."""
         selected_scale = time_scale_or_bad_request(scale)
         day_frame = day_frame_or_bad_request(today, clock.now_utc().date())
-        points = trend_series_in(store.all_entries(), selected_scale, day_frame)
+        # No degrade boundary here on purpose: a broken series must not pretend to
+        # answer (the chart's absent-area degrade is client-side, ADR-008), so the
+        # picture is built directly and a failure surfaces as a failed read.
+        points = windowed_series(picture_of(store.all_entries()).series, selected_scale, day_frame)
         return {
             "points": [
                 {"date": point.day.isoformat(), "trend_kg": point.trend_kg} for point in points
@@ -732,7 +529,7 @@ def build_router(
                 "view": view,
                 "scale": time_scale_or_bad_request(scale).value,
                 "entry_columns": ENTRY_COLUMN_HEADINGS,
-                "history_rows": complete_record_rows(recorded, trend_by_day_or_degrade(recorded)),
+                "history_rows": complete_record_rows(recorded, picture_or_degrade(recorded)),
             },
         )
 

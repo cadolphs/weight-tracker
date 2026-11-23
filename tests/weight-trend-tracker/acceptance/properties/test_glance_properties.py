@@ -1,6 +1,6 @@
 """Layer-1 pure-core properties for the glance (US-007, ADR-006) -- PBT full (Mandate 9).
 
-Driving port = the pure functions `glance`, `quantize_rate`, `rate_glyph` (their
+Driving port = `picture_of(...).glance` (ADR-014), `quantize_rate`, `rate_glyph` (their
 signatures ARE the port). Oracle = the shipped `trend_series` (OUT-5-verified by the
 prior feature): ADR-006 derives the glance FROM that series, so the properties pin:
 
@@ -24,7 +24,8 @@ import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
-from weight_tracker.core.glance import glance, quantize_rate, rate_glyph
+from weight_tracker.core.glance import quantize_rate, rate_glyph
+from weight_tracker.core.picture import picture_of
 from weight_tracker.core.trend import trend_series
 from weight_tracker.core.types import Entry
 
@@ -54,7 +55,7 @@ def spanned_entry_sets(draw, min_span: int = 0, max_span: int = 30) -> list[Entr
 @given(entries=spanned_entry_sets())
 @settings(max_examples=100, deadline=None)
 def test_a_fixed_entry_set_always_renders_an_identical_glance(entries):
-    assert glance(entries) == glance(entries)
+    assert picture_of(entries).glance == picture_of(entries).glance
 
 
 @given(entries=spanned_entry_sets(min_span=1), seed=st.randoms())
@@ -62,13 +63,13 @@ def test_a_fixed_entry_set_always_renders_an_identical_glance(entries):
 def test_entry_order_never_changes_the_glance(entries, seed):
     shuffled = list(entries)
     seed.shuffle(shuffled)
-    assert glance(shuffled) == glance(entries)
+    assert picture_of(shuffled).glance == picture_of(entries).glance
 
 
 @given(entries=spanned_entry_sets())
 @settings(max_examples=100, deadline=None)
 def test_the_glance_value_is_where_the_trend_line_ends(entries):
-    summary = glance(entries)
+    summary = picture_of(entries).glance
     assert summary is not None
     assert summary.trend_kg == trend_series(entries)[-1].trend_kg
 
@@ -77,7 +78,7 @@ def test_the_glance_value_is_where_the_trend_line_ends(entries):
 @settings(max_examples=100, deadline=None)
 def test_the_rate_is_the_lines_own_trailing_week_change(entries):
     series = trend_series(entries)
-    summary = glance(entries)
+    summary = picture_of(entries).glance
     assert summary is not None
     # ADR-006 verbatim: the smoothed series' own net change over the trailing 7 grid
     # days -- sign-consistent with the visible endpoint movement by construction.
@@ -90,19 +91,19 @@ def test_the_rate_is_the_lines_own_trailing_week_change(entries):
 @example(entries=entries_on([0, 7], [82.5, 82.5]))  # span 7: exactly earned, rate shown
 def test_the_rate_holds_its_tongue_below_a_seven_day_entry_span(entries):
     span_days = (entries[-1].day - entries[0].day).days
-    summary = glance(entries)
+    summary = picture_of(entries).glance
     assert summary is not None
     assert (summary.rate_kg_per_week is not None) == (span_days >= 7)
 
 
 def test_an_empty_record_offers_no_glance():
-    assert glance([]) is None
+    assert picture_of([]).glance is None
 
 
 @given(kg=weights)
 @settings(max_examples=100, deadline=None)
 def test_the_first_entry_already_has_a_trend_value_but_no_rate(kg):
-    summary = glance(entries_on([0], [kg]))
+    summary = picture_of(entries_on([0], [kg])).glance
     assert summary is not None
     assert summary.trend_kg == kg
     assert summary.rate_kg_per_week is None
