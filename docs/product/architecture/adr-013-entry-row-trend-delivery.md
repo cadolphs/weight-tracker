@@ -4,6 +4,8 @@
 
 Accepted (2026-09-09, Propose mode; feature `numeric-trend-history`, US-016). Does not supersede any prior ADR; relies on ADR-004 (the series is the source of the number), ADR-005 (pure core), ADR-006 (injected read-only pure callable), ADR-010 (route-level projection of the read `GET /` already performs).
 
+Superseded in part by ADR-014 (2026-11-23): `trend_by_day` is no longer a third injected callable; it is one derivation inside the Picture. The row definition, precisions, wire shape and degrade-to-empty-cell behaviour below stand, with the row builders now taking a `Picture`.
+
 ## Context
 
 The smoothed trend exists as a **number** exactly once — the glance line, for the most recent entry day — and as a **shape** everywhere else. "How much has the trend moved since mid-August?" is a subtraction of two numbers, and the product answers it by asking the user to read pixels off a curve whose y-axis was deliberately widened by ADR-012 so that small movements look small. DISCUSS locked the product shape (D6–D12): both entries lists — the front page's last-7 (`#recent-entries`) and the History page's complete record (`#history-entries`) — become aligned `Date | Raw | Trend` tables; the trend value is the existing full-record smoothed series read at each entry's own day (derived, never stored); both lists change together because one row grammar serves them; a failing trend empties the trend cells and nothing else.
