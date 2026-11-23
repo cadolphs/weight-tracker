@@ -11,14 +11,14 @@ toggle sharing the selected window, one trend.study.opened per open),
 entry screen (instant typing, date row above the field, one hint line,
 ambient home.graph.shown delivery), PWA manifest + minimal service worker
 (app-shell cache only,
-D-11), telemetry counts with the KPI-1 speed report and the KPI-8 repair
-count (write-time backdated classification, ADR-011).
+D-11), and the trail's KPI report on /stats (ADR-015). Routes decide WHEN an
+event is marked (ADR-009) and call the trail; the trail stamps, stores and
+derives the report.
 """
 
 from __future__ import annotations
 
 import json
-import statistics
 import sys
 from collections.abc import Callable, Sequence
 from datetime import date
@@ -32,6 +32,7 @@ from fastapi.templating import Jinja2Templates
 
 from weight_tracker.core.axis import y_axis_range
 from weight_tracker.core.picture import Picture, trendless_picture_of
+from weight_tracker.core.trail import EventName, parse_study_signal
 from weight_tracker.core.trend import windowed_series
 from weight_tracker.core.types import (
     Entry,
@@ -39,10 +40,8 @@ from weight_tracker.core.types import (
     RejectionReason,
     Saved,
     TimeScale,
-    ViewMode,
     entries_in_window,
     parse_time_scale,
-    window_start,
 )
 from weight_tracker.core.validation import (
     bounded_day_frame,
@@ -65,6 +64,7 @@ from weight_tracker.shell.access_gate import (
 from weight_tracker.shell.access_gate import (
     Rejected as PassphraseRejected,
 )
+from weight_tracker.shell.trail import Trail
 from weight_tracker.web.views import (
     ENTRY_COLUMN_HEADINGS,
     axis_range_wire,
@@ -74,52 +74,6 @@ from weight_tracker.web.views import (
     recent_entries_payload,
     recent_entry_rows,
 )
-
-ENTRY_SAVED_EVENT = "entry.saved"
-#: Emission RETIRED by ADR-009 (2026-07-24): GET /trend is a pure read. The name
-#: remains so /stats can keep reading the frozen-historical rows on the trail.
-TREND_VIEW_OPENED_EVENT = "trend.view.opened"
-TREND_GLANCE_SHOWN_EVENT = "trend.glance.shown"
-#: Intent telemetry (ADR-009): intent is recorded on intent-expressing surfaces,
-#: never inferred on data reads. Ambient = the front page delivering the graph;
-#: deliberate = a History-page open or an explicit lens/scale tap (beacon).
-HOME_GRAPH_SHOWN_EVENT = "home.graph.shown"
-TREND_STUDY_OPENED_EVENT = "trend.study.opened"
-TREND_STUDY_INTERACTION_EVENT = "trend.study.interaction"
-
-#: The study beacon's closed vocabulary (ADR-009): the ONLY words a signal may
-#: speak. Surface/control name the two graph surfaces and their two explicit
-#: controls; value tokens derive from the core's own lens and scale sets
-#: (Mandate-12: reuse, no new enums). Anything else never reaches the trail.
-STUDY_SURFACES = frozenset({"home", "history"})
-STUDY_CONTROLS = frozenset({"lens", "scale"})
-STUDY_VALUES = frozenset(lens.value for lens in ViewMode) | frozenset(
-    scale.value for scale in TimeScale
-)
-STUDY_VOCABULARY: dict[str, frozenset[str]] = {
-    "surface": STUDY_SURFACES,
-    "control": STUDY_CONTROLS,
-    "value": STUDY_VALUES,
-}
-
-
-def parse_study_signal(body: object) -> dict[str, str] | None:
-    """Total parse of a beacon body against the closed vocabulary (ADR-009).
-
-    Pure judgment, `parse_time_scale` precedent: the validated
-    {surface, control, value} tokens when every field speaks the vocabulary;
-    None for ANYTHING else -- wrong shape, unknown words, non-string values.
-    Free text cannot survive this gate, so it can never reach the append-only
-    trail (unbounded preservation). The core judges; the shell phrases 400."""
-    if not isinstance(body, dict) or set(body) != set(STUDY_VOCABULARY):
-        return None
-    if any(
-        not isinstance(body[field], str) or body[field] not in spoken
-        for field, spoken in STUDY_VOCABULARY.items()
-    ):
-        return None
-    return {field: body[field] for field in STUDY_VOCABULARY}
-
 
 #: PictureProjection driving port (ADR-014): read-only, derived-never-stored -- ONE
 #: pure function of the FULL entry set yielding everything the pages know about the
@@ -224,37 +178,6 @@ PWA_MANIFEST: dict[str, Any] = {
 }
 
 
-def speed_summary(samples: Sequence[int]) -> dict[str, Any]:
-    """KPI-1 speed report over client-measured entry durations: median, p90, count.
-
-    Pure summary of whatever window the caller selected; an empty window reports
-    honest nulls rather than a pretended speed."""
-    if not samples:
-        return {"median_ms": None, "p90_ms": None, "sample_count": 0}
-    ordered = sorted(samples)
-    return {
-        "median_ms": statistics.median(ordered),
-        "p90_ms": _p90(ordered),
-        "sample_count": len(ordered),
-    }
-
-
-def _p90(ordered_samples: Sequence[int]) -> float:
-    """Worst-case-but-one duration: the 90th percentile (last decile boundary,
-    inclusive method so it never extrapolates past the observed worst case)."""
-    if len(ordered_samples) == 1:
-        return float(ordered_samples[0])
-    return float(statistics.quantiles(ordered_samples, n=10, method="inclusive")[-1])
-
-
-def _kpi_week_start(today: date) -> date:
-    """Rolling KPI week (/stats `trend_views_this_week`): exactly the 1W scale
-    window -- the core's single pinned "last N days inclusive of today" rule
-    applied to the event trail (no second copy of the calendar arithmetic)."""
-    week_start = window_start(TimeScale.ONE_WEEK, today)
-    return week_start if week_start is not None else today  # None is ALL-only, 1W is bounded
-
-
 def _unlocked_response(wants_page: bool) -> Response:
     """Success has two faces: the browser is sent home to the entry screen (303
     See Other, so the form POST becomes a GET); API clients get the JSON receipt."""
@@ -293,9 +216,7 @@ def build_router(
     gate: AccessGate,
     clock: ClockPort,
     picture_of: PictureProjection,
-    count_events_since: Callable[[str, date], int],
-    entry_ms_samples_since: Callable[[str, date], list[int]],
-    backdated_saves_since: Callable[[str, date], int],
+    trail: Trail,
     replication_status: Callable[[], str],
 ) -> APIRouter:
     router = APIRouter()
@@ -321,9 +242,7 @@ def build_router(
         at read time on /stats."""
         if picture.glance is None:
             return None
-        store.append_event(
-            ts=clock.now_utc().isoformat(), name=TREND_GLANCE_SHOWN_EVENT, payload="{}"
-        )
+        trail.mark(EventName.TREND_GLANCE_SHOWN)
         return glance_display_text(picture.glance)
 
     @router.post("/login")
@@ -385,9 +304,7 @@ def build_router(
             # proxy, the glance precedent (Q3) -- entries exist, so the morning
             # picture is delivered, even if the client's series fetch later fails.
             # Per-delivery, no per-day dedup (D-14: pairing is computed on /stats).
-            store.append_event(
-                ts=clock.now_utc().isoformat(), name=HOME_GRAPH_SHOWN_EVENT, payload="{}"
-            )
+            trail.mark(EventName.HOME_GRAPH_SHOWN)
         return _templates.TemplateResponse(
             request=request,
             name="index.html",
@@ -437,21 +354,18 @@ def build_router(
             day=day,
             weight_kg=weight_kg,
             # KPI-1 purity is STRUCTURAL, not a query rule: a repair carries no
-            # timing at all, in the row or on the trail, so the shipped null-skip
-            # in `entry_ms_samples_since` yields it zero speed samples. "A slow
+            # timing at all, in the row or on the trail, so the report's null-skip
+            # (`kpi_report`, ADR-015) yields it zero speed samples. "A slow
             # backfill dragged the weekly median" cannot be represented.
             entry_ms=None if backdated else submitted.get("entry_ms"),
         )
         store.upsert(entry, logged_at=logged_at)
-        store.append_event(
-            ts=logged_at,
-            name=ENTRY_SAVED_EVENT,
-            # ONE event per save (D-23): the verdict travels as a payload word, never
-            # a second event name -- the repair counter reads it where the timing is
-            # withheld, so the two KPIs can never disagree about the same save.
-            payload=json.dumps(
-                {"date": day.isoformat(), "entry_ms": entry.entry_ms, "backdated": backdated}
-            ),
+        # ONE event per save (D-23): the verdict travels as a payload word, never
+        # a second event name -- the repair counter reads it where the timing is
+        # withheld, so the two KPIs can never disagree about the same save.
+        trail.mark(
+            EventName.ENTRY_SAVED,
+            {"date": day.isoformat(), "entry_ms": entry.entry_ms, "backdated": backdated},
         )
         saved = Saved(day=day, weight_kg=weight_kg)
         # One picture of the refreshed record (ADR-014): the glance and the recent
@@ -518,9 +432,7 @@ def build_router(
         from the same newest-first all_entries() read the raw plot draws, ALWAYS
         the whole record regardless of the selected window; an empty record
         renders no list (the first-log invite stands alone, A16)."""
-        store.append_event(
-            ts=clock.now_utc().isoformat(), name=TREND_STUDY_OPENED_EVENT, payload="{}"
-        )
+        trail.mark(EventName.TREND_STUDY_OPENED)
         recorded = store.all_entries()
         return _templates.TemplateResponse(
             request=request,
@@ -551,11 +463,7 @@ def build_router(
         if signal is None:
             return JSONResponse({"detail": "unknown study vocabulary"}, status_code=400)
         try:
-            store.append_event(
-                ts=clock.now_utc().isoformat(),
-                name=TREND_STUDY_INTERACTION_EVENT,
-                payload=json.dumps(signal),
-            )
+            trail.mark(EventName.TREND_STUDY_INTERACTION, signal)
         except Exception as failure:
             _log_study_append_degraded(failure)
         return Response(status_code=204)
@@ -567,41 +475,10 @@ def build_router(
 
     @router.get("/stats")
     def stats() -> dict[str, Any]:
-        """KPI query surface. `speed` is the 7-day KPI-1 report; the five-second
-        threshold is a weekly human judgment, never a gate here (DEVOPS H-003)."""
-        kpi_week_start = _kpi_week_start(clock.now_utc().date())
-        return {
-            "entry_logged_count": store.count_events(ENTRY_SAVED_EVENT),
-            # FROZEN-HISTORICAL (ADR-009 instrument switch, labeled per Forge
-            # condition 2): the trend.view.opened emission retired 2026-07-24;
-            # this counter reads the preserved pre-switch rows and can only age.
-            # The live KPI-3 counter is trend_study_this_week below.
-            "trend_view_opened_count": store.count_events(TREND_VIEW_OPENED_EVENT),
-            # Ambient glance deliveries over the SAME rolling week as the deliberate
-            # trend views beside it (KPI-3/KPI-5 separation read from the real trail);
-            # historical seeding/backdated saves age out of the window by construction.
-            "trend_glance_shown_count": count_events_since(
-                TREND_GLANCE_SHOWN_EVENT, kpi_week_start
-            ),
-            "trend_views_this_week": count_events_since(TREND_VIEW_OPENED_EVENT, kpi_week_start),
-            # KPI-3 live (ADR-009, Q2): raw rolling-week count of deliberate study --
-            # History-page opens + explicit lens/scale taps -- same week frame as
-            # trend_views_this_week; any session collapse is a read-time refinement.
-            "trend_study_this_week": (
-                count_events_since(TREND_STUDY_OPENED_EVENT, kpi_week_start)
-                + count_events_since(TREND_STUDY_INTERACTION_EVENT, kpi_week_start)
-            ),
-            # KPI-7 (ADR-009): ambient morning-graph deliveries, same rolling week.
-            "home_graph_shown_this_week": count_events_since(
-                HOME_GRAPH_SHOWN_EVENT, kpi_week_start
-            ),
-            # KPI-8 (ADR-011): gaps and typos repaired in the app, over the SAME
-            # rolling week as its neighbours. Read off the `backdated` flag the save
-            # itself stamps -- one event per save (D-23) -- so a repair shows up here
-            # exactly where it is withheld from the morning-speed record below.
-            "backdated_saves_this_week": backdated_saves_since(ENTRY_SAVED_EVENT, kpi_week_start),
-            "speed": speed_summary(entry_ms_samples_since(ENTRY_SAVED_EVENT, kpi_week_start)),
-        }
+        """KPI query surface: the trail's weekly report (ADR-015). `speed` is the
+        7-day KPI-1 report; the five-second threshold is a weekly human judgment,
+        never a gate here (DEVOPS H-003)."""
+        return trail.report()
 
     @router.get("/healthz")
     def healthz() -> dict[str, str]:

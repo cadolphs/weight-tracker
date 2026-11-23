@@ -1,4 +1,4 @@
-"""SQLite EntryStore + TelemetryStore adapter.
+"""SQLite adapter for the record (EntryStorePort) and the trail (TrailPort).
 
 Schema (ADR-002): entries(date TEXT PRIMARY KEY, weight_kg REAL, logged_at TEXT,
 entry_ms INTEGER) + append-only events(id, ts, name, payload).
@@ -12,12 +12,14 @@ a version newer than CODE_SCHEMA_VERSION (a rollback landed behind a schema chan
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import uuid
 from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from weight_tracker.core.trail import Event
 from weight_tracker.core.types import Entry
 
 _LYING_FILESYSTEMS = frozenset({"tmpfs", "ramfs", "overlay", "overlayfs"})
@@ -207,13 +209,17 @@ class SqliteEntryStore:
             )
             connection.commit()
 
-    def count_events(self, name: str) -> int:
+    def all_events(self) -> list[Event]:
         with closing(self._connect()) as connection:
-            row = connection.execute(
-                "SELECT COUNT(*) FROM events WHERE name = ?", (name,)
-            ).fetchone()
-        return int(row[0])
+            rows = connection.execute("SELECT ts, name, payload FROM events ORDER BY id").fetchall()
+        return [_event_from_row(row) for row in rows]
 
 
 def _entry_from_row(row: tuple[str, float, int | None]) -> Entry:
     return Entry(day=date.fromisoformat(row[0]), weight_kg=row[1], entry_ms=row[2])
+
+
+def _event_from_row(row: tuple[str, str, str]) -> Event:
+    """Timestamps were written by `datetime.isoformat`; payloads by `json.dumps`."""
+    ts, name, payload = row
+    return Event(ts=datetime.fromisoformat(ts), name=name, payload=json.loads(payload))

@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import sys
 from collections.abc import Callable
-from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -22,11 +21,7 @@ from weight_tracker.core.picture import picture_of as production_picture_of
 from weight_tracker.ports import ClockPort
 from weight_tracker.shell.access_gate import AccessGate, install_access_gate
 from weight_tracker.shell.entry_store import SqliteEntryStore, replication_status
-from weight_tracker.shell.telemetry_store import (
-    backdated_saves_since,
-    count_events_since,
-    entry_ms_samples_since,
-)
+from weight_tracker.shell.trail import Trail
 from weight_tracker.web.routes import PictureProjection, build_router
 
 
@@ -76,10 +71,11 @@ def build_app(
                                          on /graph opens and the study beacon)
         GET  /graph?view=...&scale=...   graph page (default view=trend A4; one-tap
                                          Trend/Raw toggle shares selected_time_scale)
-        GET  /stats                      KPI query surface (entry speed, adherence, trend
-                                         opens incl. trend_views_this_week rolling 7 days,
-                                         and backdated_saves_this_week -- in-app repairs,
-                                         KPI-8 -- over that same rolling week)
+        GET  /stats                      the trail's KPI report (ADR-015): one pure
+                                         derivation over the whole trail -- entry speed,
+                                         trend opens incl. trend_views_this_week rolling
+                                         7 days, backdated_saves_this_week (in-app
+                                         repairs, KPI-8) over that same rolling week
         GET  /healthz                    unauthenticated health/replication status
         GET  /manifest.webmanifest       PWA install manifest
         GET  /sw.js                      minimal service worker (app-shell cache only)
@@ -98,9 +94,8 @@ def build_app(
             gate=gate,
             clock=clock,
             picture_of=picture_of,
-            count_events_since=partial(count_events_since, db_path),
-            entry_ms_samples_since=partial(entry_ms_samples_since, db_path),
-            backdated_saves_since=partial(backdated_saves_since, db_path),
+            # The trail (ADR-015): the same SQLite file is its one driven adapter.
+            trail=Trail(store=store, clock=clock),
             replication_status=lambda: replication_status(db_path),
         )
     )

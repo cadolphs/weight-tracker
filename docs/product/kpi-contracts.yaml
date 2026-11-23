@@ -72,7 +72,7 @@ events:
       date: "ISO date of the entry (device-local calendar day)"
       entry_ms: "client-measured ms from screen-interactive to save tap; NULL when the save
         is backdated (a repair carries no morning timing — KPI-1 purity rides the shipped
-        null-skip in entry_ms_samples_since)"
+        null-skip in core/trail.py: kpi_report, ADR-015)"
       backdated: "true when the saved date is not the day the phone claimed as its own
         (POST /entries `today`, skew-clamped; absent/garbled claim falls back to the
         server's UTC day and NEVER refuses the save). KPI-8's instrument."
@@ -90,7 +90,7 @@ kpis:
     baseline: "30000-45000 ms (old app, estimated)"
     # SSOT CORRECTED (DISTILL 2026-07-24, entry-date-picker R-2): the APPEND-ONLY
     # TRAIL is KPI-1's source of truth — which is what /stats has always read
-    # (routes.py: entry_ms_samples_since over events). The query below has been
+    # (core/trail.py: kpi_report over the trail, ADR-015). The query below has been
     # REPLACED accordingly: the previous `SELECT ... FROM entries` form diverged
     # from the shipped code and would now be actively wrong, because
     # correcting a past day upserts entry_ms = NULL over that row, ERASING the
@@ -208,8 +208,8 @@ kpis:
     baseline: "0% — before the date row a noticed gap or typo was unrepairable in the app"
     instrument: >
       entry.saved payload flag `backdated: true` (write-time classification,
-      ADR-011); read on /stats as `backdated_saves_this_week` via the new read-model
-      query `backdated_saves_since` (entry_ms_samples_since pattern). The ≤30 s repair
+      ADR-011); read on /stats as `backdated_saves_this_week` by the trail's pure
+      KPI report (core/trail.py: kpi_report, ADR-015). The ≤30 s repair
       time is SELF-REPORTED at dogfood — deliberately NOT stamped into the morning-speed
       field, so "a repair counted as a morning" stays non-representable.
     storage: events table
