@@ -1,8 +1,11 @@
 """Typed test-side domain vocabulary (Mandate-12 SSOT + zero duplication).
 
-Domain nouns are defined ONCE in `weight_tracker.core.types` (production SSOT)
-and re-exported here; this module adds only test-side typed vocabulary
-(phrase-to-reason mapping, scale labels, date parsing for Gherkin surface).
+Domain nouns -- and the shipped day grammar (`day_label`) and window rule
+(`window_start`, `SCALE_WINDOW_DAYS`) -- are defined ONCE in
+`weight_tracker.core.types` (production SSOT) and re-exported here; this module
+adds only test-side typed vocabulary (phrase-to-reason mapping, scale labels,
+date parsing for the Gherkin surface, the WCAG contrast checker, the axis band
+arithmetic). Nothing here re-implements a rule the core already ships.
 Step methods and composition services consume these types -- never raw strings
 where an enum exists.
 """
@@ -11,7 +14,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from enum import Enum
 
 from weight_tracker.core.types import (  # noqa: F401  (re-exports are the point)
@@ -19,6 +22,7 @@ from weight_tracker.core.types import (  # noqa: F401  (re-exports are the point
     MAX_WEIGHT_KG,
     MIN_WEIGHT_KG,
     PRECISION_KG,
+    SCALE_WINDOW_DAYS,
     Entry,
     Rejected,
     RejectionReason,
@@ -26,6 +30,8 @@ from weight_tracker.core.types import (  # noqa: F401  (re-exports are the point
     TimeScale,
     TrendPoint,
     ViewMode,
+    day_label,
+    window_start,
 )
 
 TEST_PASSPHRASE = "correct-horse-battery-staple"
@@ -49,15 +55,6 @@ SCALE_LABELS: dict[str, TimeScale] = {
     "1Y": TimeScale.ONE_YEAR,
     "All": TimeScale.ALL,
     "ALL": TimeScale.ALL,
-}
-
-#: Window length in days per scale (pinned at DISTILL; window = [today - (N-1), today]).
-SCALE_WINDOW_DAYS: dict[TimeScale, int] = {
-    TimeScale.ONE_WEEK: 7,
-    TimeScale.ONE_MONTH: 30,
-    TimeScale.THREE_MONTHS: 91,
-    TimeScale.SIX_MONTHS: 182,
-    TimeScale.ONE_YEAR: 365,
 }
 
 VIEW_WORDS: dict[str, ViewMode] = {
@@ -125,13 +122,6 @@ def parse_rate_disposition(phrase: str) -> RateDisposition:
 
 def parse_reason(phrase: str) -> RejectionReason:
     return REASON_PHRASES[phrase]
-
-
-def window_start(scale: TimeScale, today: date) -> date | None:
-    """First day of the window for a scale, or None for ALL (unbounded)."""
-    if scale is TimeScale.ALL:
-        return None
-    return today - timedelta(days=SCALE_WINDOW_DAYS[scale] - 1)
 
 
 # --------------------------------------------------------------------------
@@ -305,16 +295,6 @@ GARBLED_DAY_CLAIM = "someday-soon"
 
 def parse_claim(phrase: str) -> DayClaim:
     return CLAIM_PHRASES[phrase]
-
-
-def day_label(day: date) -> str:
-    """The ONE day grammar every surface speaks (D-24): 'Thu 23 Jul'.
-
-    Identical to the day half of the production row grammar
-    (`routes.entry_row_text`) and of `Saved.confirmation` -- the hint line
-    reuses it rather than forking a second calendar wording. Asserted against
-    the server's own rendered rows, never trusted on its own."""
-    return f"{day:%a} {day.day} {day:%b}"
 
 
 # --------------------------------------------------------------------------
