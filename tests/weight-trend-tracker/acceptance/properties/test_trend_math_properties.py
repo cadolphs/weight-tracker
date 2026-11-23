@@ -26,8 +26,8 @@ import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
-from weight_tracker.core.trend import trend_series
-from weight_tracker.core.types import Entry
+from weight_tracker.core.trend import trend_series, windowed_series
+from weight_tracker.core.types import Entry, TimeScale, window_start
 
 pytestmark = [pytest.mark.property, pytest.mark.us_004]
 
@@ -158,3 +158,49 @@ def test_a_sustained_half_kilo_per_week_decline_is_visible_within_7_days(kg):
     # steps never trip the Huber clip, so the filter is linear here).
     # Rejects a flat/cumulative-mean line, which would sit at ~plateau-0.6.
     assert series[max(series)] < plateau_kg - 1.0
+
+
+# ------------------------------------------------- windowed OUTPUT (ADR-014 / ADR-004)
+#
+# `windowed_series` takes the series the picture already holds and keeps exactly
+# the points inside [window_start, today], both ends inclusive; ALL keeps them all.
+# The oracle below is written against `window_start` and explicit inclusive bounds,
+# never against `windowed_series` itself.
+
+scales = st.sampled_from(list(TimeScale))
+todays = st.dates(min_value=START, max_value=START + timedelta(days=140))
+
+
+@given(entries=entry_sets(), scale=scales, today=todays)
+@settings(max_examples=100, deadline=None)
+def test_a_window_keeps_exactly_the_points_between_its_start_and_today_inclusive(
+    entries, scale, today
+):
+    series = trend_series(entries)
+    shown = windowed_series(series, scale, today)
+    start = window_start(scale, today)
+    expected = (
+        series
+        if start is None
+        else [point for point in series if start <= point.day and point.day <= today]
+    )
+    assert shown == expected, (
+        "bounded scales keep [window_start, today] with BOTH ends inclusive; ALL is unbounded"
+    )
+
+
+@given(kg=st.integers(500, 1200).map(lambda i: i / 10), scale=scales)
+@settings(max_examples=50, deadline=None)
+def test_both_window_edges_are_shown_when_the_record_reaches_them(kg, scale):
+    """A record that spans well past both edges must show the window's first day
+    AND today -- an exclusive bound on either end would drop a real point."""
+    entries = steady(kg, days=120)
+    today = START + timedelta(days=100)
+    series = trend_series(entries)
+    shown = windowed_series(series, scale, today)
+    start = window_start(scale, today)
+    if start is None:
+        assert shown == series, "ALL is unbounded: the whole series, past today included"
+    else:
+        assert shown[0].day == max(start, START)
+        assert shown[-1].day == today
