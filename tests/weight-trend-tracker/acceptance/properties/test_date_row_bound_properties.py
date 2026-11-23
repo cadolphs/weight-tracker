@@ -12,9 +12,9 @@ WHY-NEW-FILE: tests/weight-trend-tracker/acceptance/properties/test_date_row_bou
     into the bijection file would put a non-Hypothesis, non-record assertion
     inside a module whose docstring promises PBT over the prefill map.
 
-Driving port = the pure function `date_row_earliest_day` (its signature IS the
-port). It is a projection of the SAME newest-first `all_entries()` read the entry
-screen already performs -- no clock, no I/O, no second store call.
+Driving port = the pure function `picture_of`, read at `earliest_pickable_day`
+(ADR-014; its signature IS the port). It is a projection of the SAME newest-first
+`all_entries()` read the entry screen already performs -- no clock, no I/O, no second store call.
 
 Contract shape: pure-function (return-only), universe empty -- no state-delta
 matcher applies (documented bypass: pure-function / no-side-effect code, per the
@@ -53,8 +53,8 @@ from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 import weight_tracker.web.routes as routes
+from weight_tracker.core.picture import picture_of
 from weight_tracker.core.types import Entry
-from weight_tracker.web.routes import date_row_earliest_day
 
 pytestmark = [pytest.mark.property, pytest.mark.us_013]
 
@@ -85,7 +85,7 @@ def newest_first_record(draw, min_size: int = 0, max_size: int = 40) -> list[Ent
 @example(entries=[Entry(day=date(2026, 3, 3), weight_kg=84.9)])  # the headline AC's own day
 def test_the_bound_is_one_calendar_year_before_the_record_began(entries):
     first_day = min(entry.day for entry in entries)
-    bound = date_row_earliest_day(entries)
+    bound = picture_of(entries).earliest_pickable_day
     assert (bound.year, bound.month) == (first_day.year - 1, first_day.month), (
         f"the picker must reach back exactly one year before the record began "
         f"({first_day}), not to some other month -- got {bound}"
@@ -100,7 +100,7 @@ def test_the_bound_is_one_calendar_year_before_the_record_began(entries):
 @settings(max_examples=200, deadline=None)
 def test_the_bound_reads_the_first_day_not_the_latest(entries):
     oldest = [Entry(day=min(e.day for e in entries), weight_kg=entries[-1].weight_kg)]
-    assert date_row_earliest_day(entries) == date_row_earliest_day(oldest), (
+    assert picture_of(entries).earliest_pickable_day == picture_of(oldest).earliest_pickable_day, (
         "the bound is anchored on where the record BEGINS: adding later mornings "
         "on top of it must never move how far back the picker may reach"
     )
@@ -109,7 +109,7 @@ def test_the_bound_reads_the_first_day_not_the_latest(entries):
 @given(entries=newest_first_record(min_size=1))
 @settings(max_examples=200, deadline=None)
 def test_every_stored_day_stays_reachable(entries):
-    bound = date_row_earliest_day(entries)
+    bound = picture_of(entries).earliest_pickable_day
     assert all(bound < entry.day for entry in entries), (
         "a bound that excluded a stored day would make that day unrepairable -- "
         f"the record spans {min(e.day for e in entries)}..{max(e.day for e in entries)}, "
@@ -122,7 +122,7 @@ def test_every_stored_day_stays_reachable(entries):
 def test_the_bound_is_a_year_wide_not_a_fixed_day_count(entries):
     """A year of slack, give or take the leap day -- never a decade, never a week."""
     first_day = min(entry.day for entry in entries)
-    reach = first_day - date_row_earliest_day(entries)
+    reach = first_day - picture_of(entries).earliest_pickable_day
     assert timedelta(days=365) <= reach <= timedelta(days=366), (
         f"the reach behind {first_day} must be one year (365-366 days), got {reach.days} days"
     )
@@ -132,7 +132,7 @@ def test_the_bound_is_a_year_wide_not_a_fixed_day_count(entries):
 @settings(max_examples=200, deadline=None)
 @example(day=date(2028, 2, 29))  # the leap day: a common year has no counterpart
 def test_the_leap_day_settles_on_the_last_february_rather_than_drifting(day):
-    bound = date_row_earliest_day([Entry(day=day, weight_kg=82.0)])
+    bound = picture_of([Entry(day=day, weight_kg=82.0)]).earliest_pickable_day
     assert bound.year == day.year - 1, f"{day} must reach back into {day.year - 1}, got {bound}"
     if (day.month, day.day) == (2, 29):
         assert (bound.month, bound.day) == (2, 28), (
@@ -145,7 +145,7 @@ def test_the_leap_day_settles_on_the_last_february_rather_than_drifting(day):
 
 
 def test_an_empty_record_has_no_bound_at_all():
-    assert date_row_earliest_day([]) is None, (
+    assert picture_of([]).earliest_pickable_day is None, (
         "there is no record to reach back into, so the row carries NO min -- "
         "never a sentinel day, never an empty-string attribute"
     )

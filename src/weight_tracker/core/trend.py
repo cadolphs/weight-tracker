@@ -47,35 +47,21 @@ def trend_series(entries: Sequence[Entry]) -> list[TrendPoint]:
     return [TrendPoint(day=day, trend_kg=kg) for day, kg in zip(grid, smoothed_means, strict=True)]
 
 
-def trend_by_day(entries: Sequence[Entry]) -> dict[date, float]:
-    """The smoothed series as a day-keyed lookup: the SAME values `trend_series`
-    returns, addressable by calendar day (ADR-013).
+def windowed_series(
+    series: Sequence[TrendPoint], scale: TimeScale, today: date
+) -> list[TrendPoint]:
+    """The smoothed trend for the selected scale: full-record smoothing, windowed OUTPUT.
 
-    Total over the record by construction: the grid spans first->last entry day,
-    so every ENTRY day has a value and a row can never want for one. Grid days
-    with no entry are present here too and are simply not rendered -- the lists
-    are entry-based, never calendar-based (A18/A33).
-
-    Derived, never stored (ADR-004): the values revise retrospectively when a
-    past day is backfilled, which is the point -- a row shows the best current
-    estimate of the past, not a frozen guess.
-    """
-    return {point.day: point.trend_kg for point in trend_series(entries)}
-
-
-def trend_series_in(entries: Sequence[Entry], scale: TimeScale, today: date) -> list[TrendPoint]:
-    """Smoothed trend for the selected scale: full-record smoothing, windowed OUTPUT.
-
-    Derived, never stored (ADR-004): the trend is recomputed from the FULL entry
-    set on every read, then the resulting points are windowed to the scale.
-    Windowing the input entries instead would change smoothing near the window
-    edge. ALL is unbounded; bounded scales keep [window_start, today].
+    Takes the SERIES the picture already holds (ADR-014), never the entries: the
+    smoothing ran once over the FULL record, and only the resulting points are
+    windowed to the scale. Windowing the input entries instead would change the
+    smoothing near the window edge. ALL is unbounded; bounded scales keep
+    [window_start, today].
     """
     first_shown_day = window_start(scale, today)
-    full_series = trend_series(entries)
     if first_shown_day is None:
-        return full_series
-    return [point for point in full_series if first_shown_day <= point.day <= today]
+        return list(series)
+    return [point for point in series if first_shown_day <= point.day <= today]
 
 
 def _daily_grid(first_day: date, last_day: date) -> list[date]:

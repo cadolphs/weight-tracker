@@ -1,7 +1,7 @@
 """Pure-core properties for the day-keyed trend projection (US-016, ADR-013) --
 PBT full, the paired property DELIVER owes its own new core function (ADR-025).
 
-Driving port = the pure function `trend_by_day` (its signature IS the port;
+Driving port = `picture_of(...).trend_by_day` (ADR-014; its signature IS the port;
 pure functions are the exempt single-output category, so no state-delta
 universe applies -- there is no adjacent state).
 
@@ -29,7 +29,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from weight_tracker.core.trend import trend_by_day, trend_series
+from weight_tracker.core.picture import picture_of
+from weight_tracker.core.trend import trend_series
 from weight_tracker.core.types import Entry
 
 pytestmark = [pytest.mark.property, pytest.mark.us_016]
@@ -49,7 +50,7 @@ def records(draw, min_size: int = 0, max_size: int = 25) -> list[Entry]:
 @given(entries=records())
 @settings(max_examples=100, deadline=None)
 def test_it_is_exactly_the_series_keyed_by_day(entries):
-    assert trend_by_day(entries) == {p.day: p.trend_kg for p in trend_series(entries)}, (
+    assert picture_of(entries).trend_by_day == {p.day: p.trend_kg for p in trend_series(entries)}, (
         "the column and the chart must plot ONE series (A36) -- this mapping is a view "
         "of trend_series, never a second computation"
     )
@@ -60,7 +61,7 @@ def test_it_is_exactly_the_series_keyed_by_day(entries):
 def test_every_entry_day_has_a_value(entries):
     """Totality (A32): the grid spans first->last entry day, so a row can never
     want for its trend. This is what licenses the absence of a fallback branch."""
-    missing = [e.day for e in entries if e.day not in trend_by_day(entries)]
+    missing = [e.day for e in entries if e.day not in picture_of(entries).trend_by_day]
     assert not missing, f"every entry day sits on the trend grid, but {missing} do not"
 
 
@@ -71,7 +72,7 @@ def test_it_spans_the_record_and_fills_the_gaps(entries):
     gap days included. They are present here and deliberately unrendered: the
     lists slice ENTRIES, not days (A33), so the mapping is never smaller than
     the record and is larger exactly by the gaps."""
-    smoothed = trend_by_day(entries)
+    smoothed = picture_of(entries).trend_by_day
     first, last = min(e.day for e in entries), max(e.day for e in entries)
     expected = {first + timedelta(days=offset) for offset in range((last - first).days + 1)}
     assert set(smoothed) == expected
@@ -81,7 +82,7 @@ def test_it_spans_the_record_and_fills_the_gaps(entries):
 @given(entries=records())
 @settings(max_examples=100, deadline=None)
 def test_read_order_cannot_change_a_single_value(entries):
-    assert trend_by_day(entries) == trend_by_day(list(reversed(entries))), (
+    assert picture_of(entries).trend_by_day == picture_of(list(reversed(entries))).trend_by_day, (
         "the mapping is a pure function of the entry SET; all_entries() serving "
         "newest-first must not make it a different mapping (ADR-004)"
     )
@@ -90,16 +91,20 @@ def test_read_order_cannot_change_a_single_value(entries):
 @given(entries=records())
 @settings(max_examples=50, deadline=None)
 def test_the_same_record_answers_identically_every_time(entries):
-    assert trend_by_day(entries) == trend_by_day(entries), "G-3: same entries, same numbers"
+    assert picture_of(entries).trend_by_day == picture_of(entries).trend_by_day, (
+        "G-3: same entries, same numbers"
+    )
 
 
 def test_an_empty_record_yields_an_empty_mapping():
     """Not None, not a raise: the row builder asks it for days it will never have,
     and the empty record simply has no rows to build."""
-    assert trend_by_day([]) == {}
+    assert picture_of([]).trend_by_day == {}
 
 
 def test_a_single_entry_is_its_own_trend():
     """The diffuse-prior start (ADR-004): the first observation IS the state, so a
     first morning reads the same number in both columns rather than a blank."""
-    assert trend_by_day([Entry(day=date(2026, 7, 24), weight_kg=77.2)]) == {date(2026, 7, 24): 77.2}
+    assert picture_of([Entry(day=date(2026, 7, 24), weight_kg=77.2)]).trend_by_day == {
+        date(2026, 7, 24): 77.2
+    }

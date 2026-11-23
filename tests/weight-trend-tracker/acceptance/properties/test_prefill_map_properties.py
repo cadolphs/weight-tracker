@@ -1,8 +1,9 @@
 """Pure-core properties for the whole-record prefill map (US-014, ADR-010/D-21) -- PBT full.
 
-Driving port = the pure function `record_weights_map` (its signature IS the
-port). It is a projection of the newest-first `all_entries()` read the entry
-screen already performs -- no clock, no I/O, no store call of its own.
+Driving port = the pure function `picture_of`, read at `record_weights`
+(ADR-014; its signature IS the port). It is a projection of the newest-first
+`all_entries()` read the entry screen already performs -- no clock, no I/O, no store
+call of its own.
 
 Contract shape: pure-function (return-only), universe empty -- no state-delta
 matcher applies (documented bypass: pure-function / no-side-effect code, per
@@ -33,8 +34,8 @@ import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
+from weight_tracker.core.picture import picture_of
 from weight_tracker.core.types import Entry
-from weight_tracker.web.routes import record_weights_map
 
 pytestmark = [pytest.mark.property, pytest.mark.us_014]
 
@@ -63,7 +64,7 @@ def newest_first_record(draw, min_size: int = 0, max_size: int = 40) -> list[Ent
 @given(entries=newest_first_record())
 @settings(max_examples=200, deadline=None)
 def test_every_stored_day_answers_and_only_stored_days_answer(entries):
-    offered = record_weights_map(entries)
+    offered = picture_of(entries).record_weights
     assert set(offered) == {entry.day.isoformat() for entry in entries}, (
         "the map must key on EVERY stored day and no other (A24): a day dropped "
         "is a repair the record refuses, a day invented is a value never logged"
@@ -73,7 +74,7 @@ def test_every_stored_day_answers_and_only_stored_days_answer(entries):
 @given(entries=newest_first_record())
 @settings(max_examples=200, deadline=None)
 def test_the_whole_record_survives_the_projection(entries):
-    assert len(record_weights_map(entries)) == len(entries), (
+    assert len(picture_of(entries).record_weights) == len(entries), (
         "nothing may be dropped or collapsed -- the map is the whole record, "
         "never a window (ADR-010: a bounded window fails A24 by construction)"
     )
@@ -83,7 +84,7 @@ def test_the_whole_record_survives_the_projection(entries):
 @settings(max_examples=200, deadline=None)
 @example(entries=[Entry(day=date(2026, 3, 3), weight_kg=84.9)])  # the headline AC's own day
 def test_each_day_offers_its_own_weight_uncoerced(entries):
-    offered = record_weights_map(entries)
+    offered = picture_of(entries).record_weights
     for entry in entries:
         assert offered[entry.day.isoformat()] == entry.weight_kg, (
             f"{entry.day} must offer back the weight the record stores, unrounded "
@@ -99,11 +100,11 @@ def test_each_day_offers_its_own_weight_uncoerced(entries):
 def test_a_day_without_an_entry_is_absent_never_a_sentinel(data, entries):
     logged = {entry.day for entry in entries}
     gap = data.draw(record_days.filter(lambda day: day not in logged))
-    assert gap.isoformat() not in record_weights_map(entries), (
+    assert gap.isoformat() not in picture_of(entries).record_weights, (
         f"{gap} holds no entry, so it must be ABSENT from the map -- a sentinel, "
         f"a null or a zero would let the client overwrite a gap blindly"
     )
 
 
 def test_an_empty_record_offers_nothing_to_correct():
-    assert record_weights_map([]) == {}
+    assert picture_of([]).record_weights == {}

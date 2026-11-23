@@ -16,8 +16,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from weight_tracker.core.trend import trend_series
-from weight_tracker.core.types import Entry, TrendPoint
+from weight_tracker.core.types import TrendPoint
 
 #: ADR-006 fixed display rules (determinism contract; changed only by a superseding ADR).
 RATE_STEP_KG_PER_WEEK = 0.05
@@ -32,26 +31,27 @@ class GlanceSummary:
     rate_kg_per_week: float | None
 
 
-def glance(entries: Sequence[Entry]) -> GlanceSummary | None:
-    """Current trend value and weekly rate as of the last entry day; None for an empty record.
+def glance_of(series: Sequence[TrendPoint]) -> GlanceSummary | None:
+    """Current trend value and weekly rate as of the last entry day; None for an empty series.
 
-    trend_kg = smoothed series END value (where the graph's line ends -- single source);
+    Takes the SERIES, never the entries (ADR-014): the smoothing runs once, in the
+    picture, and this is a derivation over it -- no path here can run a second Kalman.
+    trend_kg = series END value (where the graph's line ends -- single source);
     rate_kg_per_week = smoothed[-1] - smoothed[-8] iff span >= RATE_SPAN_MIN_DAYS, else None.
-    Pure function of the full entry set: deterministic, input-order invariant.
+    The entry span is the grid span: the grid runs first->last ENTRY day (ADR-004).
     """
-    series = trend_series(entries)
     if not series:
         return None
     return GlanceSummary(
         trend_kg=series[-1].trend_kg,
-        rate_kg_per_week=_trailing_week_rate(series, _entry_span_days(entries)),
+        rate_kg_per_week=_trailing_week_rate(series, _grid_span_days(series)),
     )
 
 
-def _entry_span_days(entries: Sequence[Entry]) -> int:
-    """Entry-based span in days: latest entry date minus earliest entry date (ADR-006)."""
-    days = [entry.day for entry in entries]
-    return (max(days) - min(days)).days
+def _grid_span_days(series: Sequence[TrendPoint]) -> int:
+    """Span in days from the first to the last grid day == latest entry date minus
+    earliest entry date (ADR-006), because the grid spans exactly the entry days."""
+    return (series[-1].day - series[0].day).days
 
 
 def _trailing_week_rate(series: Sequence[TrendPoint], span_days: int) -> float | None:
