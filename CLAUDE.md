@@ -12,3 +12,17 @@ This project follows the **functional programming paradigm** (Functional Core / 
 ## Mutation Testing Strategy
 
 This project uses **per-feature** mutation testing. Runs after refactoring during each delivery, scoped to modified files. Kill rate gate: >= 80%.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues for `cadolphs/weight-tracker` (use the `gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` at the root; ADRs in `docs/product/architecture/adr-NNN-*.md`. See `docs/agents/domain.md`.
