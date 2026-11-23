@@ -4,6 +4,8 @@
 
 Accepted (2026-07-23, user-selected; feature `home-trend-display`, US-007). Does **not** supersede ADR-004 — the trend algorithm is unchanged; this ADR derives one number from its output.
 
+Superseded in part by ADR-014 (2026-11-23): the glance is no longer a separately injected callable; it is one derivation inside the Picture, computed from the series the picture already holds. The rate rule and quantization below are unchanged.
+
 ## Context
 
 US-007 puts `Trend: 82.3 kg · ↓0.25 kg/week` on the entry screen. The behavioral ACs constrain the rate: deterministic; consistent in sign and magnitude with the displayed trend's movement; kg/week; 0.05-step display with two decimals; glyph from the rounded sign; shown only on a record spanning ≥7 days. ADR-004's local-level model carries **no slope state**, so the rate must be derived from the smoothed series itself. Verified series semantics (`core/trend.py`): daily calendar grid from first to **last entry day** inclusive, gap days present as predict-only smoothed points — so once the entry span reaches 7 days the grid has ≥8 points and a trailing-7-day lookback always exists, even across gaps.
