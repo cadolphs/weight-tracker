@@ -159,7 +159,7 @@ def kpi_report(events: Sequence[Event], today: date) -> dict[str, Any]:
         # morning-speed record below. A save written before the flag existed
         # carries no `backdated` word and is no repair.
         "backdated_saves_this_week": sum(
-            1 for event in saves_this_week if event.payload.get("backdated") is True
+            1 for event in saves_this_week if event.payload.get("backdated")
         ),
         # KPI-1: a repair carries no timing at all (null entry_ms, ADR-011), so
         # it is not a sample -- purity is structural at the write, not a rule here.
