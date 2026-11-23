@@ -24,6 +24,7 @@ closed vocabulary is judged in the core, phrased as 400 by the shell.
 
 from __future__ import annotations
 
+import dataclasses
 import statistics
 from datetime import UTC, date, datetime, time, timedelta
 
@@ -65,9 +66,11 @@ TREND_GLANCE_SHOWN = "trend.glance.shown"
 HOME_GRAPH_SHOWN = "home.graph.shown"
 TREND_STUDY_OPENED = "trend.study.opened"
 TREND_STUDY_INTERACTION = "trend.study.interaction"
-#: A name the trail may hold from a retired emission or a hand-seeded row: the
-#: report must ignore it everywhere.
+#: Names the trail may hold from a retired emission or a hand-seeded row: the
+#: report must ignore them everywhere, whatever their payload says and whichever
+#: side of `entry.saved` they sort on.
 RETIRED_NAME = "trend.something.retired"
+IMPORTED_NAME = "backfill.imported"
 
 TODAY = date(2026, 7, 24)
 
@@ -92,12 +95,13 @@ def trail_events(draw) -> Event:
                 TREND_STUDY_OPENED,
                 TREND_STUDY_INTERACTION,
                 RETIRED_NAME,
+                IMPORTED_NAME,
             )
         )
     )
     stamped = datetime.combine(draw(days_around_today), draw(times_of_day), tzinfo=UTC)
     payload: dict[str, object] = {}
-    if name == ENTRY_SAVED:
+    if name in (ENTRY_SAVED, IMPORTED_NAME):  # an import may carry a save's words
         payload = {"entry_ms": draw(st.one_of(st.none(), st.integers(1, 30_000)))}
         flag = draw(st.sampled_from((True, False, None)))
         if flag is not None:
@@ -220,6 +224,27 @@ def test_an_empty_trail_reports_zeros_and_honest_nulls():
         "backdated_saves_this_week": 0,
         "speed": {"median_ms": None, "p90_ms": None, "sample_count": 0},
     }
+
+
+def test_a_foreign_row_wearing_a_saves_payload_is_no_save():
+    """A hand-seeded row under another name carries entry_ms and a backdated
+    flag; the report reads the NAME, so it is neither a sample nor a repair."""
+    foreign = Event(
+        ts=datetime.combine(TODAY, time(8, 0), tzinfo=UTC),
+        name=IMPORTED_NAME,
+        payload={"entry_ms": 4200, "backdated": True},
+    )
+    report = kpi_report([foreign], today=TODAY)
+    assert report["entry_logged_count"] == 0
+    assert report["backdated_saves_this_week"] == 0
+    assert report["speed"] == {"median_ms": None, "p90_ms": None, "sample_count": 0}
+
+
+def test_an_event_read_back_cannot_be_rewritten():
+    """Frozen (ADR-005): the report derives from rows as the trail holds them."""
+    event = Event(ts=datetime.combine(TODAY, time(8, 0), tzinfo=UTC), name=ENTRY_SAVED, payload={})
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        event.name = HOME_GRAPH_SHOWN  # type: ignore[misc]
 
 
 def test_the_week_opens_at_midnight_six_days_ago_and_has_no_upper_edge():
